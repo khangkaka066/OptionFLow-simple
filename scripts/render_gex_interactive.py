@@ -155,6 +155,24 @@ def add_hline(fig: go.Figure, y: float, color: str, dash: str = "dash") -> None:
     fig.add_hline(y=y, line_dash=dash, line_color=color, opacity=0.85)
 
 
+def add_spot_vline_label(fig: go.Figure, spot: float) -> None:
+    fig.add_vline(x=spot, line_dash="dot", line_color=SPOT_COLOR)
+    fig.add_annotation(
+        x=spot,
+        y=0.98,
+        xref="x",
+        yref="paper",
+        text=f"SPOT {spot:.2f}",
+        showarrow=False,
+        yanchor="top",
+        xanchor="left",
+        xshift=6,
+        font=dict(color=SPOT_COLOR, size=11),
+        bgcolor="rgba(5,7,11,0.70)",
+        borderpad=2,
+    )
+
+
 def add_level_labels(
     fig: go.Figure,
     levels: list[tuple[str, float, str]],
@@ -319,13 +337,7 @@ def build_oi_iv_chart(data: pd.DataFrame, spot: float) -> go.Figure:
             hovertemplate="IV %{y:.1f}%<extra></extra>",
         )
     )
-    fig.add_vline(
-        x=spot,
-        line_dash="dot",
-        line_color=SPOT_COLOR,
-        annotation_text=f"SPOT {spot:.2f}",
-        annotation_position="bottom right",
-    )
+    add_spot_vline_label(fig, spot)
 
     fig.update_layout(
         title=dict(text="", font=dict(color=TEXT, size=13), x=0),
@@ -369,13 +381,7 @@ def build_oi_chart(data: pd.DataFrame, spot: float) -> go.Figure:
             hovertemplate="Puts %{y:,.0f}<extra></extra>",
         )
     )
-    fig.add_vline(
-        x=spot,
-        line_dash="dot",
-        line_color=SPOT_COLOR,
-        annotation_text=f"SPOT {spot:.2f}",
-        annotation_position="bottom right",
-    )
+    add_spot_vline_label(fig, spot)
 
     fig.update_layout(
         title=dict(text="", font=dict(color=TEXT, size=13), x=0),
