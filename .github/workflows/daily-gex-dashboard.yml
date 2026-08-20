@@ -2,9 +2,10 @@ name: Daily QQQ GEX Dashboard
 
 on:
   schedule:
-    # 20:25 Vietnam time = 13:25 UTC.
-    # During US daylight saving time this is 09:25 New York, five minutes before open.
-    - cron: "25 13 * * 1-5"
+    # Every 5 minutes from 19:55 to 20:35 Vietnam time (12:55 to 13:35 UTC).
+    # During US daylight saving time this covers 08:55 to 09:35 New York.
+    - cron: "55/5 12 * * 1-5"
+    - cron: "0-35/5 13 * * 1-5"
   workflow_dispatch:
     inputs:
       ticker:
