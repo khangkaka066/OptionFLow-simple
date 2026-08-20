@@ -500,10 +500,14 @@ def build_iv_rank_chart(input_dir: Path, summary: dict) -> go.Figure:
     fig = go.Figure()
 
     hist = load_iv_history(input_dir.parent, ticker)
+    tickvals = None
+    ticktext = None
 
     if len(hist) >= 2:
         hist = hist.copy()
         hist["date_dt"] = pd.to_datetime(hist["date"], errors="coerce")
+        tickvals = hist["date_dt"]
+        ticktext = hist["date_dt"].dt.strftime("%b %d")
         rank = pct_rank(hist["avg_iv"], current_iv)
         y_max = max(100.0, float(hist["avg_iv"].max()) * 1.15, current_iv * 1.15 if np.isfinite(current_iv) else 0.0)
 
@@ -566,6 +570,8 @@ def build_iv_rank_chart(input_dir: Path, summary: dict) -> go.Figure:
         nticks=6,
         fixedrange=True,
     )
+    if tickvals is not None and ticktext is not None:
+        layout["xaxis"].update(tickmode="array", tickvals=tickvals, ticktext=ticktext)
     layout["yaxis"].update(fixedrange=True)
     layout["yaxis2"] = {**layout.get("yaxis2", {}), "fixedrange": True}
     fig.update_layout(**layout)
