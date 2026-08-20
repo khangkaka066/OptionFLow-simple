@@ -374,3 +374,38 @@ public/history/latest_summary.json
 Workflow không còn copy toàn bộ `data/options/` lên Pages nữa. Raw JSON, Parquet và reconciliation chỉ tồn tại tạm trong runner để tạo dashboard, không lưu dài hạn trên GitHub Pages.
 
 Artifact GitHub Actions cũng chỉ giữ bản nhẹ trong 1 ngày để tránh đầy dung lượng.
+
+## 12. Lấy Volatility Flow Mỗi 1 Phút Trên Máy Local
+
+Nếu muốn có `Volatility Flow` dày hơn GitHub cron, chạy lệnh này lúc khoảng `20:25` giờ Việt Nam:
+
+```bash
+python3 scripts/collect_volatility_flow.py --ticker QQQ
+```
+
+Mặc định lệnh này sẽ:
+
+```text
+chạy ngay snapshot đầu tiên
+lặp mỗi 60 giây
+kéo dài 90 phút
+render lại dashboard sau mỗi snapshot
+```
+
+Nếu muốn chỉnh thời lượng:
+
+```bash
+python3 scripts/collect_volatility_flow.py --ticker QQQ --duration-minutes 90 --interval-seconds 60
+```
+
+Trong lúc script chạy, để terminal mở. Sau mỗi snapshot thành công, file dashboard mới nhất nằm trong:
+
+```text
+data/options/YYYY-MM-DD/QQQ_YYYY-MM-DD_interactive.html
+```
+
+Muốn dừng giữa chừng thì bấm:
+
+```text
+Ctrl + C
+```
