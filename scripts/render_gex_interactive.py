@@ -108,6 +108,17 @@ def nearest_row(data: pd.DataFrame, spot: float) -> pd.Series | None:
     return clean.loc[idx]
 
 
+def top_right_legend() -> dict:
+    return dict(
+        orientation="h",
+        y=1.16,
+        x=1,
+        xanchor="right",
+        yanchor="bottom",
+        bgcolor="rgba(9,13,21,0.70)",
+    )
+
+
 def chart_layout(title: str, height: int = 360, margin_t: int = 64) -> dict:
     return dict(
         title=dict(text="", font=dict(color=TEXT, size=13), x=0),
@@ -120,14 +131,7 @@ def chart_layout(title: str, height: int = 360, margin_t: int = 64) -> dict:
         hoverlabel=dict(bgcolor="rgba(5,7,11,0.9)", font=dict(color=TEXT)),
         dragmode="zoom",
         showlegend=True,
-        legend=dict(
-            orientation="h",
-            y=1.16,
-            x=1,
-            xanchor="right",
-            yanchor="bottom",
-            bgcolor="rgba(9,13,21,0.70)",
-        ),
+        legend=top_right_legend(),
         xaxis=dict(gridcolor=GRID, color=MUTED),
         yaxis=dict(gridcolor=GRID, color=MUTED),
     )
@@ -315,15 +319,21 @@ def build_oi_iv_chart(data: pd.DataFrame, spot: float) -> go.Figure:
             hovertemplate="IV %{y:.1f}%<extra></extra>",
         )
     )
-    fig.add_vline(x=spot, line_dash="dot", line_color=SPOT_COLOR, annotation_text=f"SPOT {spot:.2f}", annotation_position="top")
+    fig.add_vline(
+        x=spot,
+        line_dash="dot",
+        line_color=SPOT_COLOR,
+        annotation_text=f"SPOT {spot:.2f}",
+        annotation_position="bottom right",
+    )
 
     fig.update_layout(
-        title=dict(text="OI × IV by Strike", font=dict(color=TEXT, size=13), x=0),
+        title=dict(text="", font=dict(color=TEXT, size=13), x=0),
         paper_bgcolor=BG,
         plot_bgcolor=PANEL,
         font=dict(color=TEXT),
         height=380,
-        margin=dict(l=70, r=60, t=40, b=45),
+        margin=dict(l=70, r=60, t=64, b=45),
         hovermode="x unified",
         hoverlabel=dict(bgcolor="rgba(5,7,11,0.9)", font=dict(color=TEXT)),
         dragmode="zoom",
@@ -331,7 +341,7 @@ def build_oi_iv_chart(data: pd.DataFrame, spot: float) -> go.Figure:
         bargap=0.15,
         bargroupgap=0.0,
         showlegend=True,
-        legend=dict(orientation="h", y=1.12, x=0),
+        legend=top_right_legend(),
         xaxis=dict(title="Strike", gridcolor=GRID, color=MUTED),
         yaxis=dict(title="Open Interest", gridcolor=GRID, color=MUTED),
         yaxis2=dict(title="IV %", overlaying="y", side="right", color=MUTED, showgrid=False),
@@ -359,15 +369,21 @@ def build_oi_chart(data: pd.DataFrame, spot: float) -> go.Figure:
             hovertemplate="Puts %{y:,.0f}<extra></extra>",
         )
     )
-    fig.add_vline(x=spot, line_dash="dot", line_color=SPOT_COLOR, annotation_text=f"SPOT {spot:.2f}", annotation_position="top")
+    fig.add_vline(
+        x=spot,
+        line_dash="dot",
+        line_color=SPOT_COLOR,
+        annotation_text=f"SPOT {spot:.2f}",
+        annotation_position="bottom right",
+    )
 
     fig.update_layout(
-        title=dict(text="OI by Strike", font=dict(color=TEXT, size=13), x=0),
+        title=dict(text="", font=dict(color=TEXT, size=13), x=0),
         paper_bgcolor=BG,
         plot_bgcolor=PANEL,
         font=dict(color=TEXT),
         height=340,
-        margin=dict(l=70, r=35, t=40, b=45),
+        margin=dict(l=70, r=35, t=64, b=45),
         hovermode="x unified",
         hoverlabel=dict(bgcolor="rgba(5,7,11,0.9)", font=dict(color=TEXT)),
         dragmode="zoom",
@@ -375,7 +391,7 @@ def build_oi_chart(data: pd.DataFrame, spot: float) -> go.Figure:
         bargap=0.15,
         bargroupgap=0.0,
         showlegend=True,
-        legend=dict(orientation="h", y=1.12, x=0),
+        legend=top_right_legend(),
         xaxis=dict(title="Strike", gridcolor=GRID, color=MUTED),
         yaxis=dict(title="Open Interest", gridcolor=GRID, color=MUTED),
     )
