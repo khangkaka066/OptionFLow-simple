@@ -788,9 +788,9 @@ def render(
     }
     gex_html = gex_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="gex-plot")
     dex_html = dex_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="dex-plot")
-    oiiv_html = oiiv_fig.to_html(full_html=False, include_plotlyjs="cdn", config=config, div_id="oiiv-plot")
+    oiiv_html = oiiv_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="oiiv-plot")
     oi_html = oi_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="oi-plot")
-    vol_flow_html = vol_flow_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="vol-flow-plot")
+    vol_flow_html = vol_flow_fig.to_html(full_html=False, include_plotlyjs="cdn", config=config, div_id="vol-flow-plot")
     iv_rank_html = iv_rank_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="iv-rank-plot")
     vol_skew_html = vol_skew_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="vol-skew-plot")
 
