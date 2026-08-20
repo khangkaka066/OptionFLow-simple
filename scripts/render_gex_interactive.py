@@ -502,6 +502,8 @@ def build_iv_rank_chart(input_dir: Path, summary: dict) -> go.Figure:
     hist = load_iv_history(input_dir.parent, ticker)
 
     if len(hist) >= 2:
+        hist = hist.copy()
+        hist["date_dt"] = pd.to_datetime(hist["date"], errors="coerce")
         rank = pct_rank(hist["avg_iv"], current_iv)
         y_max = max(100.0, float(hist["avg_iv"].max()) * 1.15, current_iv * 1.15 if np.isfinite(current_iv) else 0.0)
 
@@ -509,7 +511,7 @@ def build_iv_rank_chart(input_dir: Path, summary: dict) -> go.Figure:
         fig.add_hrect(y0=y_max * 0.8, y1=y_max, fillcolor="rgba(245,158,11,0.12)", line_width=0)
         fig.add_trace(
             go.Scatter(
-                x=hist["date"],
+                x=hist["date_dt"],
                 y=hist["avg_iv"],
                 mode="lines+markers",
                 line=dict(color=CYAN, width=2),
@@ -519,7 +521,7 @@ def build_iv_rank_chart(input_dir: Path, summary: dict) -> go.Figure:
         )
         fig.add_trace(
             go.Scatter(
-                x=hist["date"],
+                x=hist["date_dt"],
                 y=hist["spot"],
                 mode="lines+markers",
                 line=dict(color=SPOT_COLOR, width=1.5, dash="dot"),
@@ -556,6 +558,16 @@ def build_iv_rank_chart(input_dir: Path, summary: dict) -> go.Figure:
         layout = chart_layout("IV Rank", height=360)
         layout["yaxis"].update(title="Avg IV %", range=[0, 100])
 
+    layout["dragmode"] = False
+    layout["xaxis"].update(
+        title=None,
+        tickformat="%b %d",
+        tickangle=0,
+        nticks=6,
+        fixedrange=True,
+    )
+    layout["yaxis"].update(fixedrange=True)
+    layout["yaxis2"] = {**layout.get("yaxis2", {}), "fixedrange": True}
     fig.update_layout(**layout)
     return fig
 
@@ -563,6 +575,7 @@ def build_iv_rank_chart(input_dir: Path, summary: dict) -> go.Figure:
 def build_volatility_flow_chart(input_dir: Path, summary: dict, latest_by_strike: pd.DataFrame) -> go.Figure:
     ticker = summary["ticker"]
     expiry = summary["expiry"]
+    snapshot_day = str(summary.get("requested_snapshot_date") or summary.get("effective_snapshot_date") or "")
     entries = []
     index_path = input_dir / "replay_index.jsonl"
     if index_path.exists():
@@ -585,9 +598,10 @@ def build_volatility_flow_chart(input_dir: Path, summary: dict, latest_by_strike
             atm_iv = float(atm["iv"] * 100) if atm is not None and pd.notna(atm.get("iv")) else np.nan
             ts = str(entry.get("timestamp", ""))
             label = f"{ts[0:2]}:{ts[2:4]}:{ts[4:6]}" if len(ts) >= 6 else ts
+            stamp = pd.to_datetime(f"{snapshot_day} {label}", errors="coerce")
             rows.append(
                 {
-                    "time": label,
+                    "time": stamp if pd.notna(stamp) else label,
                     "atm_iv": atm_iv,
                     "avg_iv": float(snap_summary.get("avg_iv") or np.nan) * 100,
                     "spot": spot,
@@ -602,7 +616,7 @@ def build_volatility_flow_chart(input_dir: Path, summary: dict, latest_by_strike
         atm = nearest_row(latest_by_strike, spot)
         rows.append(
             {
-                "time": str(summary.get("snapshot_utc", "latest"))[-14:-6],
+                "time": pd.to_datetime(summary.get("snapshot_utc", ""), errors="coerce"),
                 "atm_iv": float(atm["iv"] * 100) if atm is not None and pd.notna(atm.get("iv")) else np.nan,
                 "avg_iv": float(summary.get("avg_iv") or np.nan) * 100,
                 "spot": spot,
@@ -645,6 +659,7 @@ def build_volatility_flow_chart(input_dir: Path, summary: dict, latest_by_strike
     )
 
     layout = chart_layout("Volatility Flow", height=390)
+    layout["xaxis"].update(title=None, tickformat="%H:%M", tickangle=0, nticks=9)
     layout["yaxis"].update(title="IV %")
     layout["yaxis2"] = dict(title="Spot", overlaying="y", side="right", color=MUTED, showgrid=False)
     if len(flow) < 2:
@@ -846,12 +861,23 @@ def render(
         "scrollZoom": True,
         "modeBarButtonsToRemove": ["lasso2d", "select2d"],
     }
+    no_zoom_config = {
+        "displaylogo": False,
+        "displayModeBar": False,
+        "scrollZoom": False,
+        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+    }
     gex_html = gex_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="gex-plot")
     dex_html = dex_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="dex-plot")
     oiiv_html = oiiv_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="oiiv-plot")
     oi_html = oi_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="oi-plot")
     vol_flow_html = vol_flow_fig.to_html(full_html=False, include_plotlyjs="cdn", config=config, div_id="vol-flow-plot")
-    iv_rank_html = iv_rank_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="iv-rank-plot")
+    iv_rank_html = iv_rank_fig.to_html(
+        full_html=False,
+        include_plotlyjs=False,
+        config=no_zoom_config,
+        div_id="iv-rank-plot",
+    )
     vol_skew_html = vol_skew_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="vol-skew-plot")
 
     effective = summary.get("effective_snapshot_date", summary.get("requested_snapshot_date", ""))
