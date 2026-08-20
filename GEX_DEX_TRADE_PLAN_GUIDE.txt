@@ -1,0 +1,161 @@
+===============================================================================
+HUONG DAN DOC GEX / DEX / OI BY STRIKE / OI x IV BY STRIKE DE RA TRADE PLAN
+(QQQ dashboard - scripts/run_gex_dashboard.py)
+===============================================================================
+
+MUC DICH CUA TUNG BIEU DO
+-------------------------------------------------------------------------------
+1) GEX (Gamma Exposure) by Strike
+   - Do dealer se phai hedge bao nhieu khi gia di chuyen qua strike do.
+   - Net GEX duong -> dealer LONG gamma -> dealer mua khi gia giam, ban khi
+     gia tang -> HAM gia lai, thi truong co xu huong "range-bound".
+   - Net GEX am -> dealer SHORT gamma -> dealer ban khi gia giam, mua khi gia
+     tang -> KHUECH DAI bien dong, thi truong de "trend/chay mach".
+   - Cac muc quan trong tren chart:
+     * Gamma Wall / Call Resistance: strike co GEX duong lon nhat phia tren
+       spot -> vung kha nang chan gia tang (resistance).
+     * Put Support: strike co GEX am lon nhat phia duoi spot -> vung kha nang
+       chan gia giam (support).
+     * Gamma Flip: strike ma Net GEX doi dau (tu am sang duong theo strike
+       tang dan) -> ranh gioi giua che do "kim ham" va "khuech dai".
+
+2) DEX (Delta Exposure) by Strike
+   - Do dealer dang net long/short bao nhieu delta (huong) tai moi strike.
+   - Net DEX am lon -> dealer dang short delta manh -> ap luc mua vao de
+     hedge khi gia tang (co the ho tro dop tang).
+   - Net DEX duong lon -> dealer dang long delta -> ap luc ban ra khi gia
+     tang (co the can tro dop tang, tao resistance).
+   - Delta Flip: strike ma Net DEX doi dau -> vung chuyen tiep ve dong luon
+     hedge cua dealer.
+   - DEX phan anh "ap luc mua/ban co dinh huong" ro hon GEX (GEX doi xung ca
+     hai chieu, DEX co dau ro rang theo huong).
+
+3) OI by Strike (thanh Call/Put xep canh nhau, khong nhan IV)
+   - Cho biet KHOI LUONG hop dong dang mo tai moi strike, khong quan tam
+     dinh gia (IV) hay do nhay (gamma/delta).
+   - Dung de xac dinh "vung tap trung thanh khoan" (nhieu OI) - thuong trung
+     voi cac muc GEX/DEX lon vi OI la thanh phan cau thanh GEX/DEX.
+   - Strike co Call OI vuot troi -> nhieu khoan the hien ky vong/hedge tang
+     gia hoac ban call de thu premium tai do.
+   - Strike co Put OI vuot troi -> nhieu khoan the hien ky vong/hedge giam
+     gia hoac ban put de thu premium tai do.
+   - OI by Strike la "bang chung tho" (raw), chua qua trong so gamma/delta,
+     nen dung de XAC NHAN lai muc GEX/DEX quan trong co that su co volume
+     lon dung sau hay khong, tranh bi nhieu boi 1-2 hop dong outlier co
+     gamma/delta cao bat thuong.
+
+4) OI x IV by Strike (2 thanh Call/Put + duong IV tren truc phu)
+   - Giong OI by Strike nhung them lop DINH GIA QUYEN CHON (Implied
+     Volatility) tai moi strike.
+   - IV cao tai 1 strike -> thi truong dinh gia rui ro/bien dong lon hon tai
+     vung gia do (thuong thay IV skew tang manh o cac strike xa ATM, dac
+     biet la put OTM - "volatility skew").
+   - IV thap bat thuong tai vung nhieu OI -> thi truong tin rang gia se "bi
+     hut" ve do va it bien dong khi cham strike (phu hop voi vung GEX duong
+     lon, dealer long gamma se ham gia).
+   - IV cao bat thuong tai vung nhieu OI -> canh bao kha nang breakout/move
+     manh neu gia cham vao strike do (khop voi vung GEX am, dealer short
+     gamma se khuech dai bien dong).
+   - Dung OI x IV de tra loi cau hoi: "Muc OI lon nay la muc THAT SU se ham/
+     day gia, hay chi la noise dinh gia thap khong dang tin cay?"
+
+-------------------------------------------------------------------------------
+QUY TRINH DOC KET HOP (THEO THU TU) DE RA TRADE PLAN
+-------------------------------------------------------------------------------
+
+BUOC 1 - Xac dinh CHE DO THI TRUONG (Net GEX)
+   - Mo tab GEX, nhin Net GEX o dau dashboard.
+   - Net GEX duong -> uu tien chien luoc MEAN-REVERSION / FADE bien dong
+     (ban premium, danh range, cho gia bat lai tu Call Resistance / Put
+     Support).
+   - Net GEX am -> uu tien chien luoc TREND-FOLLOWING / BREAKOUT (mua
+     momentum khi gia pha Gamma Flip, tranh fade som).
+
+BUOC 2 - Khoanh vung RANGE giao dich trong ngay (GEX)
+   - Bien tren: Call Resistance / Gamma Wall duong gan spot nhat.
+   - Bien duoi: Put Support gan spot nhat.
+   - Diem trung tam/ranh gioi che do: Gamma Flip.
+   - Neu spot dang o giua Put Support va Call Resistance va Net GEX duong
+     -> uu tien range-trade trong khung do.
+   - Neu spot da vuot qua Gamma Flip theo huong nao -> canh bao thi truong
+     co the chuyen sang che do khuech dai bien dong theo huong do.
+
+BUOC 3 - Kiem tra AP LUC HUONG (DEX)
+   - Nhin Net DEX va Delta Flip.
+   - Net DEX am manh + spot gan/duoi Put Support -> co the co ho tro mua
+     hedge cua dealer, tang xac suat bat lai tai Put Support (tin hieu ung ho
+     LONG tai support).
+   - Net DEX duong manh tai vung tren Call Resistance -> ap luc ban hedge
+     cua dealer co the can gia tai do (tin hieu ung ho SHORT/chot loi tai
+     resistance).
+   - Neu DEX va GEX cung chieu (vd Call Resistance trung voi vung DEX duong
+     lon) -> muc do TIN CAY resistance/support cao hon vi ca 2 loai hedge
+     deu tao ap luc cung huong.
+
+BUOC 4 - XAC NHAN thanh khoan that su bang OI by Strike
+   - Doi chieu cac muc Gamma Wall / Call Resistance / Put Support / Delta
+     Flip vua tim o Buoc 2-3 voi cot OI tai strike do.
+   - Muc GEX/DEX lon nhung OI (Call+Put) tai do lai nho -> do tin cay THAP,
+     de bi "gay" khi co lenh lon moi vao, khong nen dat entry/stop qua sat.
+   - Muc GEX/DEX lon VA OI cung lon (Call OI hoac Put OI vuot troi ro ret)
+     -> do tin cay CAO, day la vung "tuong" that su, phu hop dat entry/stop/
+     target quanh do.
+
+BUOC 5 - Danh gia RUI RO BIEN DONG bang OI x IV by Strike
+   - Nhin duong IV tai chinh cac strike vua xac nhan o Buoc 4.
+   - IV thap tai vung OI lon, dac biet la vung GEX duong (long gamma) ->
+     kich ban "ham gia" duoc cung co them boi dinh gia thap -> uu tien SELL
+     PREMIUM (short strangle/iron condor quanh Call Resistance - Put
+     Support) neu dang o che do range-bound.
+   - IV cao tai vung OI lon gan Gamma Flip hoac vung GEX am -> kich ban
+     "breakout that su neu gia cham toi" duoc cung co boi dinh gia cao ->
+     TRANH ban premium tai do; neu muon tham gia, uu tien MUA (long call/
+     put hoac debit spread) theo huong breakout, KHONG fade.
+   - So sanh IV giua 2 canh (call side vs put side): ben nao IV cao hon (vi
+     du put IV cao hon call IV - "put skew") cho biet thi truong dang so
+     giam gia hon la tang gia -> co the nghieng size/bias ve phia phong thu
+     downside (mua put hedge re hon tuong doi, hoac ban call premium re hon
+     tuong doi).
+
+-------------------------------------------------------------------------------
+GHEP THANH 1 TRADE PLAN HOAN CHINH (VI DU KHUNG MAU)
+-------------------------------------------------------------------------------
+1. Che do thi truong: Net GEX [duong/am] -> [range-trade / trend-follow].
+2. Bien range: Put Support = X, Call Resistance = Y, Gamma Flip = Z.
+3. Xac nhan bang OI: Call OI tai Y la [cao/thap], Put OI tai X la [cao/
+   thap] -> do tin cay [cao/thap].
+4. Xac nhan bang DEX: Delta Flip = W, huong ap luc hedge tai X/Y la
+   [mua/ban].
+5. Xac nhan bang IV: IV tai X = a%, tai Y = b% -> [ham gia/canh bao breakout]
+   tai tung bien.
+6. QUYET DINH:
+   - Neu ca 4 lop (GEX, DEX, OI, IV) DONG THUAN -> vao lenh voi size binh
+     thuong/full, dat stop ngay ngoai muc da xac nhan (vi du duoi Put
+     Support mot chut cho lenh long).
+   - Neu chi 2-3 lop dong thuan -> giam size, hoac cho gia phan ung ro rang
+     tai muc (nen/wick tu choi) truoc khi vao thay vi vao truoc.
+   - Neu cac lop MAU THUAN (vi du GEX bao ham nhung IV lai cao bat thuong
+     tai do, hoac OI qua mong) -> DUNG NGOAI, cho tin hieu ro hon, KHONG
+     ep lenh.
+7. Quan ly lenh trong ngay:
+   - Gia cham Put Support/Call Resistance co OI+DEX xac nhan -> uu tien
+     canh mua/ban tai do theo huong fade (neu con trong che do Net GEX
+     duong).
+   - Gia pha Gamma Flip voi khoi luong/toc do bat thuong -> chuyen sang tam
+     the trend-follow, HUY cac lenh fade dang cho phia con lai, chi con
+     canh mua theo huong breakout, uu tien theo cac strike co IV cao vua
+     xac nhan o Buoc 5 (thi truong da dinh gia truoc kha nang nay).
+
+-------------------------------------------------------------------------------
+LUU Y
+-------------------------------------------------------------------------------
+- Day la mo hinh xap xi ca nhan (Black-Scholes tren OI cong khai), khong
+  phai model dealer thuc te (dealer co the da hedge mot phan, co vi the tu
+  cac nguon khac ngoai san). Dung de dinh huong xac suat, KHONG dung nhu tin
+  hieu tuyet doi.
+- Voi 0DTE, T-to-expiry giam dan trong ngay -> Gamma tang manh ve cuoi
+  phien -> cac muc Gamma Wall/Call Resistance/Put Support co the "sac net"
+  hon va bien dong quanh cac muc do co the manh hon vao gio dong cua.
+- Nen doi chieu voi range69 (range/breakout stats du an hien tai) de xac
+  nhan them: vung Call Resistance/Put Support trung voi cac muc high/low
+  session lich su cang tang do tin cay.

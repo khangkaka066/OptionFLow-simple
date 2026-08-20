@@ -1,0 +1,18 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Generated market data and dashboards can become large.
+# GitHub Actions uploads these as artifacts instead.
+data/
+
+# Local datasets and generated stats
+combined_1_7_dedup.csv
+range69_premarket_*stats.csv
+range69_visuals/*.csv
+
+# Local chart/screenshot outputs
+*.png
+*.PNG

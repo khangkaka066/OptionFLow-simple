@@ -1,0 +1,52 @@
+name: Daily QQQ GEX Dashboard
+
+on:
+  schedule:
+    # 20:25 Vietnam time = 13:25 UTC.
+    # During US daylight saving time this is 09:25 New York, five minutes before open.
+    - cron: "25 13 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: "Ticker symbol"
+        required: false
+        default: "QQQ"
+
+jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Ho_Chi_Minh
+      TICKER: ${{ github.event.inputs.ticker || 'QQQ' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements-options.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-options.txt
+
+      - name: Build dashboard
+        run: python scripts/run_gex_dashboard.py --ticker "$TICKER" --no-open
+
+      - name: Upload dashboard artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TICKER }}-gex-dashboard-${{ github.run_id }}
+          path: |
+            data/options/**/*.html
+            data/options/**/*_levels.txt
+            data/options/**/*_summary.json
+            data/options/**/*_reconciliation.json
+            data/options/**/*.parquet
+            data/options/**/replay_index.jsonl
+          if-no-files-found: error
+          retention-days: 14
