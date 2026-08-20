@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,8 @@ PURPLE = "#7C3AED"
 ORANGE = "#F59E0B"
 PINK = "#F472B6"
 SPOT_COLOR = "#CBD5E1"
+
+DATE_DIR_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 CHART_HEIGHT = 520
 CHART_MARGIN_TOP = 20
@@ -105,9 +108,9 @@ def nearest_row(data: pd.DataFrame, spot: float) -> pd.Series | None:
     return clean.loc[idx]
 
 
-def chart_layout(title: str, height: int = 360, margin_t: int = 44) -> dict:
+def chart_layout(title: str, height: int = 360, margin_t: int = 64) -> dict:
     return dict(
-        title=dict(text=title, font=dict(color=TEXT, size=13), x=0),
+        title=dict(text="", font=dict(color=TEXT, size=13), x=0),
         paper_bgcolor=BG,
         plot_bgcolor=PANEL,
         font=dict(color=TEXT),
@@ -117,7 +120,14 @@ def chart_layout(title: str, height: int = 360, margin_t: int = 44) -> dict:
         hoverlabel=dict(bgcolor="rgba(5,7,11,0.9)", font=dict(color=TEXT)),
         dragmode="zoom",
         showlegend=True,
-        legend=dict(orientation="h", y=1.12, x=0),
+        legend=dict(
+            orientation="h",
+            y=1.16,
+            x=1,
+            xanchor="right",
+            yanchor="bottom",
+            bgcolor="rgba(9,13,21,0.70)",
+        ),
         xaxis=dict(gridcolor=GRID, color=MUTED),
         yaxis=dict(gridcolor=GRID, color=MUTED),
     )
@@ -412,7 +422,7 @@ def build_volatility_skew_chart(data: pd.DataFrame, spot: float, summary: dict) 
     if subtitle:
         fig.add_annotation(
             x=0,
-            y=1.12,
+            y=1.16,
             xref="paper",
             yref="paper",
             text=subtitle,
@@ -428,74 +438,102 @@ def build_volatility_skew_chart(data: pd.DataFrame, spot: float, summary: dict) 
     return fig
 
 
-def build_iv_rank_chart(summary: dict) -> go.Figure:
+def load_iv_history(options_root: Path, ticker: str) -> pd.DataFrame:
+    """Local, network-free daily avg_iv/spot history for `ticker`.
+
+    Scans sibling day directories under `options_root` (e.g. data/options/*)
+    for each day's canonical "latest" summary file
+    (`{TICKER}_{YYYY-MM-DD}_summary.json`), skipping days that don't have an
+    avg_iv recorded yet.
+    """
+    rows = []
+    if not options_root.is_dir():
+        return pd.DataFrame(rows)
+    for day_dir in sorted(options_root.iterdir()):
+        if not day_dir.is_dir() or not DATE_DIR_RE.fullmatch(day_dir.name):
+            continue
+        summary_path = day_dir / f"{ticker.upper()}_{day_dir.name}_summary.json"
+        if not summary_path.exists():
+            continue
+        try:
+            data = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        avg_iv = data.get("avg_iv")
+        if avg_iv is None:
+            continue
+        rows.append(
+            {
+                "date": day_dir.name,
+                "avg_iv": float(avg_iv) * 100,
+                "spot": float(data.get("spot", np.nan)),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def build_iv_rank_chart(input_dir: Path, summary: dict) -> go.Figure:
     ticker = summary["ticker"]
     current_iv = float(summary.get("avg_iv") or np.nan) * 100
     fig = go.Figure()
 
-    hist = pd.DataFrame()
-    error_text = None
-    try:
-        import yfinance as yf
+    hist = load_iv_history(input_dir.parent, ticker)
 
-        hist = yf.Ticker(ticker).history(period="1y", interval="1d", auto_adjust=False)
-    except Exception as exc:  # Network/source failures should not break dashboard rendering.
-        error_text = f"Yahoo history unavailable: {exc}"
+    if len(hist) >= 2:
+        rank = pct_rank(hist["avg_iv"], current_iv)
+        y_max = max(100.0, float(hist["avg_iv"].max()) * 1.15, current_iv * 1.15 if np.isfinite(current_iv) else 0.0)
 
-    if not hist.empty and "Close" in hist:
-        close = pd.to_numeric(hist["Close"], errors="coerce").dropna()
-        rv = np.log(close / close.shift(1)).rolling(20).std() * np.sqrt(252) * 100
-        rank = pct_rank(rv, current_iv)
-
-        fig.add_hrect(y0=0, y1=20, fillcolor="rgba(34,211,238,0.10)", line_width=0)
-        fig.add_hrect(y0=80, y1=100, fillcolor="rgba(245,158,11,0.12)", line_width=0)
+        fig.add_hrect(y0=0, y1=y_max * 0.2, fillcolor="rgba(34,211,238,0.10)", line_width=0)
+        fig.add_hrect(y0=y_max * 0.8, y1=y_max, fillcolor="rgba(245,158,11,0.12)", line_width=0)
         fig.add_trace(
             go.Scatter(
-                x=rv.index,
-                y=rv,
-                mode="lines",
+                x=hist["date"],
+                y=hist["avg_iv"],
+                mode="lines+markers",
                 line=dict(color=CYAN, width=2),
-                name="20D RV",
-                hovertemplate="%{x|%b %d}<br>20D RV %{y:.1f}%<extra></extra>",
+                name="Avg IV",
+                hovertemplate="%{x}<br>Avg IV %{y:.1f}%<extra></extra>",
             )
         )
         fig.add_trace(
             go.Scatter(
-                x=close.index,
-                y=close,
-                mode="lines",
+                x=hist["date"],
+                y=hist["spot"],
+                mode="lines+markers",
                 line=dict(color=SPOT_COLOR, width=1.5, dash="dot"),
-                name="Close",
+                name="Spot",
                 yaxis="y2",
-                hovertemplate="%{x|%b %d}<br>Close $%{y:.2f}<extra></extra>",
+                hovertemplate="%{x}<br>Spot $%{y:.2f}<extra></extra>",
             )
         )
         if np.isfinite(current_iv):
             fig.add_hline(y=current_iv, line_dash="dash", line_color=YELLOW)
         fig.add_annotation(
             x=0,
-            y=1.12,
+            y=1.16,
             xref="paper",
             yref="paper",
-            text=f"IV rank proxy {rank:.1f}% · current IV {current_iv:.1f}%",
+            text=f"IV rank {rank:.1f}% · current IV {current_iv:.1f}% · {len(hist)}d local history",
             showarrow=False,
             font=dict(color=CYAN, size=11),
             xanchor="left",
         )
+        layout = chart_layout("IV Rank", height=360)
+        layout["yaxis"].update(title="Avg IV %", range=[0, y_max])
+        layout["yaxis2"] = dict(title="Spot", overlaying="y", side="right", color=MUTED, showgrid=False)
     else:
         fig.add_annotation(
             x=0.5,
             y=0.5,
             xref="paper",
             yref="paper",
-            text=error_text or "No historical price data available",
+            text="Not enough local daily snapshots yet for IV Rank (need 2+ days)",
             showarrow=False,
             font=dict(color=MUTED, size=13),
         )
+        layout = chart_layout("IV Rank", height=360)
+        layout["yaxis"].update(title="Avg IV %", range=[0, 100])
 
-    layout = chart_layout("IV Rank", height=360)
-    layout["yaxis"].update(title="Vol %", range=[0, 100])
-    layout["yaxis2"] = dict(title="Price", overlaying="y", side="right", color=MUTED, showgrid=False)
     fig.update_layout(**layout)
     return fig
 
@@ -777,7 +815,7 @@ def render(
     oiiv_fig = build_oi_iv_chart(data, spot)
     oi_fig = build_oi_chart(data, spot)
     vol_flow_fig = build_volatility_flow_chart(input_dir, summary, by_strike)
-    iv_rank_fig = build_iv_rank_chart(summary)
+    iv_rank_fig = build_iv_rank_chart(input_dir, summary)
     vol_skew_fig = build_volatility_skew_chart(data, spot, summary)
 
     config = {
