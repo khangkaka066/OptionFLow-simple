@@ -416,6 +416,20 @@ open live/QQQ_live.html
 
 Script sẽ ghi đè `live/QQQ_live.html` sau mỗi snapshot và HTML tự refresh mỗi 15 giây.
 
+Nếu muốn realtime hơn, không reload trang HTML, dùng local server:
+
+```bash
+python3 scripts/live_server.py --ticker QQQ --duration-minutes 90 --interval-seconds 60
+```
+
+Sau đó mở:
+
+```text
+http://127.0.0.1:8765
+```
+
+Trang này fetch `/api/state` mỗi 3 giây và cập nhật Plotly trực tiếp, nên biểu đồ thay đổi mà không refresh browser.
+
 Chạy thử realtime trong 5 phút:
 
 ```bash
