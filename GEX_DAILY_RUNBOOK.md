@@ -398,6 +398,34 @@ Nếu muốn chỉnh thời lượng:
 python3 scripts/collect_volatility_flow.py --ticker QQQ --duration-minutes 90 --interval-seconds 60
 ```
 
+Nếu muốn mở dashboard trước và xem tự refresh trong lúc đang collect:
+
+```bash
+python3 scripts/collect_volatility_flow.py \
+  --ticker QQQ \
+  --duration-minutes 90 \
+  --interval-seconds 60 \
+  --live-output live/QQQ_live.html
+```
+
+Mở file live một lần:
+
+```bash
+open live/QQQ_live.html
+```
+
+Script sẽ ghi đè `live/QQQ_live.html` sau mỗi snapshot và HTML tự refresh mỗi 15 giây.
+
+Chạy thử realtime trong 5 phút:
+
+```bash
+python3 scripts/collect_volatility_flow.py \
+  --ticker QQQ \
+  --duration-minutes 5 \
+  --interval-seconds 60 \
+  --live-output live/QQQ_live.html
+```
+
 Trong lúc script chạy, để terminal mở. Sau mỗi snapshot thành công, file dashboard mới nhất nằm trong:
 
 ```text

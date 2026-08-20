@@ -30,11 +30,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rate", type=float, default=0.04, help="Risk-free rate.")
     parser.add_argument("--top", type=int, default=10, help="Top levels to record.")
     parser.add_argument(
+        "--live-output",
+        type=Path,
+        default=None,
+        help="Fixed HTML path to overwrite after every snapshot, e.g. live/QQQ_live.html.",
+    )
+    parser.add_argument(
+        "--refresh-seconds",
+        type=int,
+        default=15,
+        help="Browser auto-refresh interval for --live-output HTML, default 15 seconds.",
+    )
+    parser.add_argument(
         "--stop-on-error",
         action="store_true",
         help="Stop immediately if one snapshot fails. Default keeps trying next minute.",
     )
     return parser.parse_args()
+
+
+def inject_auto_refresh(path: Path, seconds: int) -> None:
+    if seconds <= 0 or not path.exists():
+        return
+    html = path.read_text(encoding="utf-8")
+    if "http-equiv=\"refresh\"" in html:
+        return
+    marker = "<head>\n"
+    refresh = f'<meta http-equiv="refresh" content="{seconds}">\n'
+    if marker in html:
+        html = html.replace(marker, marker + refresh, 1)
+    else:
+        html = refresh + html
+    path.write_text(html, encoding="utf-8")
 
 
 def run_snapshot(args: argparse.Namespace, index: int, total: int) -> bool:
@@ -52,6 +79,8 @@ def run_snapshot(args: argparse.Namespace, index: int, total: int) -> bool:
         str(args.window),
         "--no-open",
     ]
+    if args.live_output:
+        cmd += ["--interactive-output", str(args.live_output)]
     if args.expiry:
         cmd += ["--expiry", args.expiry]
 
@@ -59,6 +88,9 @@ def run_snapshot(args: argparse.Namespace, index: int, total: int) -> bool:
     print("+", " ".join(cmd))
     result = subprocess.run(cmd, cwd=PROJECT_ROOT, check=False)
     if result.returncode == 0:
+        if args.live_output:
+            inject_auto_refresh(PROJECT_ROOT / args.live_output, args.refresh_seconds)
+            print(f"Live dashboard: {PROJECT_ROOT / args.live_output}")
         return True
     print(f"Snapshot {index} failed with exit code {result.returncode}", file=sys.stderr)
     return False
@@ -75,6 +107,9 @@ def main() -> None:
     )
     print(f"Start: {started:%Y-%m-%d %H:%M:%S}")
     print(f"End:   {ends:%Y-%m-%d %H:%M:%S}")
+    if args.live_output:
+        print(f"Live HTML: {PROJECT_ROOT / args.live_output}")
+        print(f"Browser refresh: every {args.refresh_seconds}s")
 
     successes = 0
     failures = 0

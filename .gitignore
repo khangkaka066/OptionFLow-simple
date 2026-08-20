@@ -7,6 +7,7 @@ venv/
 # Generated market data and dashboards can become large.
 # GitHub Actions uploads these as artifacts instead.
 data/
+live/
 
 # Local datasets and generated stats
 combined_1_7_dedup.csv
