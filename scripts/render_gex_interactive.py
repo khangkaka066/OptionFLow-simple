@@ -27,6 +27,8 @@ SPOT_COLOR = "#CBD5E1"
 CHART_HEIGHT = 520
 CHART_MARGIN_TOP = 20
 CHART_MARGIN_BOTTOM = 10
+CYAN = "#22D3EE"
+YELLOW = "#FACC15"
 
 # MenthorQ-style exposure chart palette: cyan = call/positive side,
 # amber = put/negative side, purple/blue reserved for the wall/flip levels.
@@ -86,6 +88,39 @@ def compact(value: float) -> str:
         if value >= div:
             return f"{sign}{value / div:.2f}{unit}"
     return f"{sign}{value:.0f}"
+
+
+def pct_rank(series: pd.Series, value: float) -> float:
+    clean = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    if clean.empty or not np.isfinite(value):
+        return float("nan")
+    return float((clean <= value).mean() * 100)
+
+
+def nearest_row(data: pd.DataFrame, spot: float) -> pd.Series | None:
+    clean = data[np.isfinite(data["strike"])].copy()
+    if clean.empty:
+        return None
+    idx = (clean["strike"] - spot).abs().idxmin()
+    return clean.loc[idx]
+
+
+def chart_layout(title: str, height: int = 360, margin_t: int = 44) -> dict:
+    return dict(
+        title=dict(text=title, font=dict(color=TEXT, size=13), x=0),
+        paper_bgcolor=BG,
+        plot_bgcolor=PANEL,
+        font=dict(color=TEXT),
+        height=height,
+        margin=dict(l=70, r=60, t=margin_t, b=45),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="rgba(5,7,11,0.9)", font=dict(color=TEXT)),
+        dragmode="zoom",
+        showlegend=True,
+        legend=dict(orientation="h", y=1.12, x=0),
+        xaxis=dict(gridcolor=GRID, color=MUTED),
+        yaxis=dict(gridcolor=GRID, color=MUTED),
+    )
 
 
 def prepare_data(by_strike: pd.DataFrame, spot: float, window: float, top: int) -> pd.DataFrame:
@@ -337,6 +372,235 @@ def build_oi_chart(data: pd.DataFrame, spot: float) -> go.Figure:
     return fig
 
 
+def build_volatility_skew_chart(data: pd.DataFrame, spot: float, summary: dict) -> go.Figure:
+    skew = data.sort_values("strike").copy()
+    for col in ["call_iv", "put_iv"]:
+        if col not in skew:
+            skew[col] = np.nan
+        skew[col] = pd.to_numeric(skew[col], errors="coerce")
+        skew.loc[(skew[col] <= 0) | (skew[col] > 5), col] = np.nan
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=skew["strike"],
+            y=skew["call_iv"] * 100,
+            mode="lines+markers",
+            line=dict(color=CYAN, width=2),
+            marker=dict(size=5),
+            name="Calls IV",
+            hovertemplate="Strike $%{x:g}<br>Calls IV %{y:.1f}%<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=skew["strike"],
+            y=skew["put_iv"] * 100,
+            mode="lines+markers",
+            line=dict(color=YELLOW, width=2, dash="dash"),
+            marker=dict(size=5),
+            name="Puts IV",
+            hovertemplate="Strike $%{x:g}<br>Puts IV %{y:.1f}%<extra></extra>",
+        )
+    )
+    fig.add_vline(x=spot, line_dash="dot", line_color=SPOT_COLOR)
+
+    atm = nearest_row(skew, spot)
+    call_atm = float(atm["call_iv"] * 100) if atm is not None and pd.notna(atm.get("call_iv")) else float("nan")
+    put_atm = float(atm["put_iv"] * 100) if atm is not None and pd.notna(atm.get("put_iv")) else float("nan")
+    subtitle = f"ATM calls {call_atm:.1f}% · puts {put_atm:.1f}%" if np.isfinite(call_atm) and np.isfinite(put_atm) else ""
+    if subtitle:
+        fig.add_annotation(
+            x=0,
+            y=1.12,
+            xref="paper",
+            yref="paper",
+            text=subtitle,
+            showarrow=False,
+            font=dict(color=MUTED, size=11),
+            xanchor="left",
+        )
+
+    layout = chart_layout("Volatility Skew", height=360)
+    layout["yaxis"].update(title="IV %")
+    layout["xaxis"].update(title="Strike")
+    fig.update_layout(**layout)
+    return fig
+
+
+def build_iv_rank_chart(summary: dict) -> go.Figure:
+    ticker = summary["ticker"]
+    current_iv = float(summary.get("avg_iv") or np.nan) * 100
+    fig = go.Figure()
+
+    hist = pd.DataFrame()
+    error_text = None
+    try:
+        import yfinance as yf
+
+        hist = yf.Ticker(ticker).history(period="1y", interval="1d", auto_adjust=False)
+    except Exception as exc:  # Network/source failures should not break dashboard rendering.
+        error_text = f"Yahoo history unavailable: {exc}"
+
+    if not hist.empty and "Close" in hist:
+        close = pd.to_numeric(hist["Close"], errors="coerce").dropna()
+        rv = np.log(close / close.shift(1)).rolling(20).std() * np.sqrt(252) * 100
+        rank = pct_rank(rv, current_iv)
+
+        fig.add_hrect(y0=0, y1=20, fillcolor="rgba(34,211,238,0.10)", line_width=0)
+        fig.add_hrect(y0=80, y1=100, fillcolor="rgba(245,158,11,0.12)", line_width=0)
+        fig.add_trace(
+            go.Scatter(
+                x=rv.index,
+                y=rv,
+                mode="lines",
+                line=dict(color=CYAN, width=2),
+                name="20D RV",
+                hovertemplate="%{x|%b %d}<br>20D RV %{y:.1f}%<extra></extra>",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=close.index,
+                y=close,
+                mode="lines",
+                line=dict(color=SPOT_COLOR, width=1.5, dash="dot"),
+                name="Close",
+                yaxis="y2",
+                hovertemplate="%{x|%b %d}<br>Close $%{y:.2f}<extra></extra>",
+            )
+        )
+        if np.isfinite(current_iv):
+            fig.add_hline(y=current_iv, line_dash="dash", line_color=YELLOW)
+        fig.add_annotation(
+            x=0,
+            y=1.12,
+            xref="paper",
+            yref="paper",
+            text=f"IV rank proxy {rank:.1f}% · current IV {current_iv:.1f}%",
+            showarrow=False,
+            font=dict(color=CYAN, size=11),
+            xanchor="left",
+        )
+    else:
+        fig.add_annotation(
+            x=0.5,
+            y=0.5,
+            xref="paper",
+            yref="paper",
+            text=error_text or "No historical price data available",
+            showarrow=False,
+            font=dict(color=MUTED, size=13),
+        )
+
+    layout = chart_layout("IV Rank", height=360)
+    layout["yaxis"].update(title="Vol %", range=[0, 100])
+    layout["yaxis2"] = dict(title="Price", overlaying="y", side="right", color=MUTED, showgrid=False)
+    fig.update_layout(**layout)
+    return fig
+
+
+def build_volatility_flow_chart(input_dir: Path, summary: dict, latest_by_strike: pd.DataFrame) -> go.Figure:
+    ticker = summary["ticker"]
+    expiry = summary["expiry"]
+    entries = []
+    index_path = input_dir / "replay_index.jsonl"
+    if index_path.exists():
+        for line in index_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            if entry.get("ticker") == ticker and entry.get("expiry") == expiry:
+                entries.append(entry)
+
+    rows = []
+    for entry in entries:
+        try:
+            summary_path = input_dir / entry["summary"]
+            by_strike_path = input_dir / entry["by_strike"]
+            snap_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            snap_strikes = pd.read_parquet(by_strike_path)
+            spot = float(snap_summary["spot"])
+            atm = nearest_row(snap_strikes, spot)
+            atm_iv = float(atm["iv"] * 100) if atm is not None and pd.notna(atm.get("iv")) else np.nan
+            ts = str(entry.get("timestamp", ""))
+            label = f"{ts[0:2]}:{ts[2:4]}:{ts[4:6]}" if len(ts) >= 6 else ts
+            rows.append(
+                {
+                    "time": label,
+                    "atm_iv": atm_iv,
+                    "avg_iv": float(snap_summary.get("avg_iv") or np.nan) * 100,
+                    "spot": spot,
+                    "net_gex": float(snap_summary.get("net_gex") or 0.0),
+                }
+            )
+        except Exception:
+            continue
+
+    if not rows:
+        spot = float(summary["spot"])
+        atm = nearest_row(latest_by_strike, spot)
+        rows.append(
+            {
+                "time": str(summary.get("snapshot_utc", "latest"))[-14:-6],
+                "atm_iv": float(atm["iv"] * 100) if atm is not None and pd.notna(atm.get("iv")) else np.nan,
+                "avg_iv": float(summary.get("avg_iv") or np.nan) * 100,
+                "spot": spot,
+                "net_gex": float(summary.get("net_gex") or 0.0),
+            }
+        )
+
+    flow = pd.DataFrame(rows)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=flow["time"],
+            y=flow["atm_iv"],
+            mode="lines+markers",
+            line=dict(color=CYAN, width=2),
+            name="ATM IV",
+            hovertemplate="%{x}<br>ATM IV %{y:.1f}%<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=flow["time"],
+            y=flow["avg_iv"],
+            mode="lines+markers",
+            line=dict(color=YELLOW, width=2),
+            name="Avg IV",
+            hovertemplate="%{x}<br>Avg IV %{y:.1f}%<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=flow["time"],
+            y=flow["spot"],
+            mode="lines+markers",
+            line=dict(color=SPOT_COLOR, width=1.8),
+            name="Spot",
+            yaxis="y2",
+            hovertemplate="%{x}<br>Spot $%{y:.2f}<extra></extra>",
+        )
+    )
+
+    layout = chart_layout("Volatility Flow", height=390)
+    layout["yaxis"].update(title="IV %")
+    layout["yaxis2"] = dict(title="Spot", overlaying="y", side="right", color=MUTED, showgrid=False)
+    if len(flow) < 2:
+        fig.add_annotation(
+            x=0.5,
+            y=0.08,
+            xref="paper",
+            yref="paper",
+            text="Needs multiple same-day snapshots for a full flow line",
+            showarrow=False,
+            font=dict(color=MUTED, size=11),
+        )
+    fig.update_layout(**layout)
+    return fig
+
+
 def render_key_level_cards(mode: str, summary: dict, effective: str) -> str:
     if mode == "gex":
         cards = [
@@ -421,6 +685,7 @@ PAGE_TEMPLATE = """<!doctype html>
   .panel-header .dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }}
   .panel-body {{ padding: 6px 10px 10px; }}
   .panel-sub {{ padding: 0 14px 14px; }}
+  .panel-wide {{ width: 100%; }}
   .cards {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }}
   .card {{
     background: {card}; border: 1px solid {grid}; border-radius: 8px; padding: 10px 12px;
@@ -440,6 +705,20 @@ PAGE_TEMPLATE = """<!doctype html>
   <div class="meta"><b>{ticker}</b> &middot; 0DTE &middot; expiry {expiry} &middot; snapshot {snapshot}</div>
 </div>
 <div class="panel-grid">
+    <div class="panel panel-wide">
+      <div class="panel-header"><span class="dot" style="background:{cyan}"></span>Volatility Flow</div>
+      <div class="panel-body">{vol_flow_chart_html}</div>
+    </div>
+    <div class="panel-row">
+      <div class="panel">
+        <div class="panel-header"><span class="dot" style="background:{cyan}"></span>IV Rank</div>
+        <div class="panel-body">{iv_rank_chart_html}</div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><span class="dot" style="background:{yellow}"></span>Volatility Skew</div>
+        <div class="panel-body">{vol_skew_chart_html}</div>
+      </div>
+    </div>
     <div class="panel-row">
       <div class="panel">
         <div class="panel-header"><span class="dot" style="background:{exposure_pos}"></span>OI &times; IV by Strike</div>
@@ -471,7 +750,7 @@ PAGE_TEMPLATE = """<!doctype html>
 </div>
 <script>
   window.addEventListener("load", function() {{
-    ["gex-plot", "dex-plot", "oiiv-plot", "oi-plot"].forEach(function(id) {{
+    ["vol-flow-plot", "iv-rank-plot", "vol-skew-plot", "gex-plot", "dex-plot", "oiiv-plot", "oi-plot"].forEach(function(id) {{
       var gd = document.getElementById(id);
       if (gd && window.Plotly) {{ Plotly.Plots.resize(gd); }}
     }});
@@ -485,6 +764,7 @@ PAGE_TEMPLATE = """<!doctype html>
 def render(
     summary: dict,
     by_strike: pd.DataFrame,
+    input_dir: Path,
     output: Path,
     window: float,
     top: int,
@@ -496,6 +776,9 @@ def render(
     dex_fig = build_chart("dex", summary, data, spot)
     oiiv_fig = build_oi_iv_chart(data, spot)
     oi_fig = build_oi_chart(data, spot)
+    vol_flow_fig = build_volatility_flow_chart(input_dir, summary, by_strike)
+    iv_rank_fig = build_iv_rank_chart(summary)
+    vol_skew_fig = build_volatility_skew_chart(data, spot, summary)
 
     config = {
         "displaylogo": False,
@@ -507,6 +790,9 @@ def render(
     dex_html = dex_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="dex-plot")
     oiiv_html = oiiv_fig.to_html(full_html=False, include_plotlyjs="cdn", config=config, div_id="oiiv-plot")
     oi_html = oi_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="oi-plot")
+    vol_flow_html = vol_flow_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="vol-flow-plot")
+    iv_rank_html = iv_rank_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="iv-rank-plot")
+    vol_skew_html = vol_skew_fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="vol-skew-plot")
 
     effective = summary.get("effective_snapshot_date", summary.get("requested_snapshot_date", ""))
     requested = summary.get("requested_snapshot_date", "")
@@ -521,6 +807,8 @@ def render(
         panel=PANEL,
         green=GREEN,
         purple=PURPLE,
+        cyan=CYAN,
+        yellow=YELLOW,
         exposure_pos=EXPOSURE_POS,
         exposure_neg=EXPOSURE_NEG,
         ticker=summary["ticker"],
@@ -530,6 +818,9 @@ def render(
         dex_chart_html=dex_html,
         oiiv_chart_html=oiiv_html,
         oi_chart_html=oi_html,
+        vol_flow_chart_html=vol_flow_html,
+        iv_rank_chart_html=iv_rank_html,
+        vol_skew_chart_html=vol_skew_html,
         gex_cards=render_key_level_cards("gex", summary, effective),
         dex_cards=render_key_level_cards("dex", summary, effective),
         gex_balance=render_dealer_balance("gex", summary),
@@ -544,7 +835,7 @@ def main() -> None:
     args = parse_args()
     summary, by_strike = load_data(args.input_dir, args.ticker, args.expiry)
     output = args.output or args.input_dir / f"{summary['ticker']}_{summary['expiry']}_interactive.html"
-    render(summary, by_strike, output, args.window, args.top)
+    render(summary, by_strike, args.input_dir, output, args.window, args.top)
     print(f"Saved interactive dashboard: {output}")
 
 
