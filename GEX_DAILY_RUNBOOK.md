@@ -356,3 +356,21 @@ git push -u origin main
 ```
 
 Sau khi push xong, vào GitHub repo → tab **Actions** → bật workflow nếu GitHub hỏi xác nhận. Bạn cũng có thể bấm **Run workflow** để chạy thủ công ngay, không cần chờ tới 20:25.
+
+## 11. Lưu Hiện Tại + Lịch Sử Gọn
+
+Workflow GitHub Pages chỉ deploy bộ file nhẹ:
+
+```text
+public/index.html
+public/levels.txt
+public/latest_summary.json
+public/history/snapshots.csv
+public/history/latest_summary.json
+```
+
+`index.html` là dashboard hiện tại. `history/snapshots.csv` là lịch sử nhẹ, mỗi lần chạy thêm một dòng gồm spot, IV, Net GEX/DEX, gamma wall, call resistance, put support, gamma flip và delta flip.
+
+Workflow không còn copy toàn bộ `data/options/` lên Pages nữa. Raw JSON, Parquet và reconciliation chỉ tồn tại tạm trong runner để tạo dashboard, không lưu dài hạn trên GitHub Pages.
+
+Artifact GitHub Actions cũng chỉ giữ bản nhẹ trong 1 ngày để tránh đầy dung lượng.

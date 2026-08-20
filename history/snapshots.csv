@@ -1,0 +1,2 @@
+snapshot_utc,snapshot_vn,ticker,expiry,spot,avg_iv_pct,net_gex,net_dex,call_resistance,put_support,gamma_wall,gamma_flip,dex_wall,delta_flip,total_call_gex,total_put_gex,total_call_dex,total_put_dex
+2026-08-20T16:52:08+00:00,2026-08-20T23:52:08+07:00,QQQ,2026-08-20,712.38,135.5221331131609,-2149435573.7475176,-2427608012.7120256,713.0,711.0,714.0,707.3165187541686,714.0,712.173893008711,274262238.57491213,-2423697812.3224297,181923995.47643396,-2609532008.18846
