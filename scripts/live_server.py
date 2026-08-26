@@ -852,6 +852,12 @@ function drawFlow(points, session, candles = []) {
   ctx.clearRect(0, 0, cssW, cssH);
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, cssW, cssH);
+  if (!points.length && !(candles || []).length) {
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = "12px Menlo, Consolas, monospace";
+    ctx.fillText("Waiting for data...", 16, 24);
+    return;
+  }
 
   const intervalMin = Number(document.getElementById("flowInterval")?.value || 1);
   const intervalMs = intervalMin * 60 * 1000;
@@ -1335,6 +1341,12 @@ function drawFlowTracker(points, session) {
   trackerState.points = points || [];
   trackerState.session = session;
   trackerState.bucketCount = rows.length;
+  if (!(points || []).length) {
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = "12px Menlo, Consolas, monospace";
+    ctx.fillText("Waiting for data...", 16, 24);
+    return;
+  }
   const metric = document.getElementById("trackerMode")?.value || "CALL_PUT";
   const isPremium = metric === "PREMIUM";
   const barCallField = isPremium ? "callPremK" : "callDeltaK";
@@ -3108,7 +3120,7 @@ function drawAll(state) {
   lastDrawState = state;
   drawFlow(state.points || [], state.session || null, state.candles || []);
   drawFlowTracker(state.points || [], state.session || null);
-  drawSkew(state.by_strike || [], state.latest_summary || {}, state.skew_tenors || []);
+  drawSkew(state.skew_by_strike || [], state.skew_summary || {}, state.skew_tenors || []);
   const gexSession = state.session ? {...state.session, history_snapshot_id: state.history_snapshot_id || null} : state.session;
   drawGexRibbon(state.gex_ribbon || [], state.points || [], state.latest_summary || {}, gexSession, state.candles || []);
   redrawPinnablePanels();
@@ -3188,6 +3200,8 @@ class LiveState:
         self.history: list[dict] = []
         self.by_strike: list[dict] = []
         self.skew_tenors: list[dict] = []
+        self.skew_summary: dict | None = None
+        self.skew_by_strike: list[dict] = []
         self.latest_summary: dict | None = None
         self.levels_summary: dict | None = None
         self.levels_locked: bool = False
@@ -3212,6 +3226,8 @@ class LiveState:
                 "history": self.history,
                 "by_strike": self.by_strike,
                 "skew_tenors": self.skew_tenors,
+                "skew_summary": self.skew_summary,
+                "skew_by_strike": self.skew_by_strike,
                 "latest_summary": self.latest_summary,
                 "levels_summary": self.levels_summary,
                 "levels_locked": self.levels_locked,
@@ -3761,6 +3777,46 @@ def seed_levels_summary(ticker: str, session: dict) -> tuple[dict | None, bool]:
         at_or_after_lock = [item for item in candidates if item[0] >= lock_ts]
         return min(at_or_after_lock, key=lambda item: item[0])[1], True
     return max(candidates, key=lambda item: item[0])[1], False
+
+
+def seed_locked_snapshot(
+    ticker: str, session: dict, lock_ts: pd.Timestamp, window: float
+) -> tuple[dict | None, list[dict], list[dict]]:
+    """Return (summary, by_strike rows, iv-rank history) for the last snapshot
+    of today strictly before lock_ts.
+
+    DEX/GEX/VEX/CHEX, OI by Strike, OIxIV by Strike and IV Rank must show
+    true EOD data until 09:00 NY, and Volatility Skew until 09:30 NY - but
+    Yahoo returns a live `preMarketPrice` for any poll made before the open,
+    so a naive "latest poll" would already recompute exposure/skew off a
+    moving premarket spot before the intended cutoff. Seeding from the last
+    pre-cutoff snapshot on disk avoids that leak. Returns (None, [], []) if
+    no such snapshot exists yet today (e.g. server started before any poll
+    has landed) - the caller keeps its empty/placeholder state in that case.
+    """
+    latest_history = latest_history_snapshot(ticker)
+    if latest_history is None:
+        return None, [], []
+    summary_history_path, _summary = latest_history
+    try:
+        summaries = pd.read_parquet(summary_history_path)
+    except Exception:
+        return None, [], []
+    summaries = summaries[summaries["ticker"].astype(str).str.upper() == ticker.upper()].copy()
+    summaries["_snapshot_ts"] = pd.to_datetime(summaries["snapshot_utc"], errors="coerce", utc=True)
+    summaries = summaries[
+        summaries["_snapshot_ts"].notna()
+        & (summaries["_snapshot_ts"] < lock_ts)
+        & (summaries["_snapshot_ts"].dt.tz_convert(NY_TZ).dt.date.astype(str) == session["trading_date"])
+    ].sort_values("snapshot_utc")
+    if summaries.empty:
+        return None, [], []
+    summary = summary_from_history_row(summaries.iloc[-1].to_dict())
+    try:
+        rows, _gex_snapshot = rows_for_history_snapshot(summary_history_path, summary, window)
+    except Exception:
+        rows = []
+    return summary, rows, load_history(ticker)
 
 
 def gex_snapshot_from_chart_rows(time_key: str, chart_rows: pd.DataFrame) -> dict:
@@ -4474,14 +4530,25 @@ def collector(args: argparse.Namespace, state: LiveState) -> None:
                             state.levels_locked = True
                         else:
                             state.levels_summary = summary
-                    state.latest_summary = summary
-                    state.by_strike = rows
-                    state.skew_tenors = skew_tenors_payload(
-                        args.ticker,
-                        float(summary.get("spot") or 0.0),
-                        summary.get("effective_snapshot_date") or summary.get("requested_snapshot_date") or "",
-                    )
-                    state.history = history
+                    # DEX/GEX/VEX/CHEX, OI by Strike, OIxIV by Strike and IV
+                    # Rank must show true EOD data until 09:00 NY (Yahoo
+                    # returns a live premarket spot before then, which would
+                    # otherwise leak into a "frozen" snapshot). Skew has its
+                    # own, later, 09:30 NY cutoff and its own state fields so
+                    # it can go live independently of the exposure group.
+                    market_open = pd.Timestamp(state.session["market_open_utc"])
+                    if pd.notna(point_ts) and point_ts >= collect_start:
+                        state.latest_summary = summary
+                        state.by_strike = rows
+                        state.history = history
+                    if pd.notna(point_ts) and point_ts >= market_open:
+                        state.skew_summary = summary
+                        state.skew_by_strike = rows
+                        state.skew_tenors = skew_tenors_payload(
+                            args.ticker,
+                            float(summary.get("spot") or 0.0),
+                            summary.get("effective_snapshot_date") or summary.get("requested_snapshot_date") or "",
+                        )
                     state.latest_error = None
                     state.successes += 1
                 except Exception as exc:
@@ -4680,6 +4747,20 @@ def main() -> None:
     state.session["collection_start_utc"] = collection_start_utc(state.session["market_open_utc"])
     state.points, state.gex_ribbon = seed_session_data(args.ticker, state.session, args.window)
     state.levels_summary, state.levels_locked = seed_levels_summary(args.ticker, state.session)
+    collect_start_ts = pd.Timestamp(state.session["collection_start_utc"])
+    market_open_ts = pd.Timestamp(state.session["market_open_utc"])
+    state.latest_summary, state.by_strike, state.history = seed_locked_snapshot(
+        args.ticker, state.session, collect_start_ts, args.window
+    )
+    state.skew_summary, state.skew_by_strike, _skew_history = seed_locked_snapshot(
+        args.ticker, state.session, market_open_ts, args.window
+    )
+    if state.skew_summary:
+        state.skew_tenors = skew_tenors_payload(
+            args.ticker,
+            float(state.skew_summary.get("spot") or 0.0),
+            state.skew_summary.get("effective_snapshot_date") or state.skew_summary.get("requested_snapshot_date") or "",
+        )
     state.secondary_ticker = args.secondary_ticker.upper() if args.secondary_ticker else ""
     if state.secondary_ticker:
         state.levels_summary_secondary, state.levels_locked_secondary = seed_levels_summary(

@@ -9,12 +9,15 @@ open interest / contract structure, cross-checked against Yahoo.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 
 import pandas as pd
 import requests
 
 CBOE_DELAYED_QUOTES_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options/{symbol}.json"
+CBOE_FETCH_RETRIES = 3
+CBOE_RETRY_BACKOFF_SECONDS = 2.0
 
 # CBOE delayed-quotes convention: cash-settled index roots are underscore-prefixed.
 CBOE_SYMBOL_OVERRIDES = {
@@ -47,9 +50,17 @@ def parse_option_symbol(symbol: str) -> tuple[str, str, float] | None:
 def fetch_raw(ticker: str, timeout: float = 15.0) -> dict:
     symbol = CBOE_SYMBOL_OVERRIDES.get(ticker.upper(), ticker.upper())
     url = CBOE_DELAYED_QUOTES_URL.format(symbol=symbol)
-    response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
-    response.raise_for_status()
-    return response.json()
+    last_exc: Exception | None = None
+    for attempt in range(CBOE_FETCH_RETRIES):
+        try:
+            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
+            response.raise_for_status()
+            return response.json()
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            last_exc = exc
+            if attempt < CBOE_FETCH_RETRIES - 1:
+                time.sleep(CBOE_RETRY_BACKOFF_SECONDS * (attempt + 1))
+    raise last_exc
 
 
 def parse_chain(raw: dict, ticker: str, expiry: str | None = None) -> CboeChain:

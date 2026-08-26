@@ -435,7 +435,7 @@ def append_history_store(
         summary_row[f"recon_{key}"] = _json_safe(value)
 
     summary_history = history_dir / f"{ticker}_{expiry}_snapshots.parquet"
-    _upsert_parquet(summary_history, pd.DataFrame([summary_row]), ["snapshot_utc", "ticker", "expiry"])
+    _upsert_parquet(summary_history, pd.DataFrame([summary_row]), ["snapshot_utc", "ticker", "expiry"], write_csv=False)
 
     strike_rows = by_strike.copy()
     strike_rows.insert(0, "snapshot_date", snapshot_date)
@@ -443,19 +443,20 @@ def append_history_store(
     strike_rows.insert(0, "expiry", expiry)
     strike_rows.insert(0, "ticker", ticker)
     by_strike_history = history_dir / f"{ticker}_{expiry}_by_strike_history.parquet"
-    _upsert_parquet(by_strike_history, strike_rows, ["snapshot_utc", "ticker", "expiry", "strike"])
+    _upsert_parquet(by_strike_history, strike_rows, ["snapshot_utc", "ticker", "expiry", "strike"], write_csv=False)
 
     return {"snapshots": summary_history, "by_strike_history": by_strike_history}
 
 
-def delete_raw_cboe(raw_paths: tuple[Path, Path] | None) -> Path | None:
+def delete_raw(raw_paths: tuple[Path, Path] | None) -> list[Path]:
     if not raw_paths:
-        return None
-    cboe_path = raw_paths[0]
-    if cboe_path.exists():
-        cboe_path.unlink()
-        return cboe_path
-    return None
+        return []
+    deleted = []
+    for path in raw_paths:
+        if path.exists():
+            path.unlink()
+            deleted.append(path)
+    return deleted
 
 
 def save_raw(output_dir: Path, ticker: str, expiry: str, ts: str, cboe_raw: dict, yahoo_raw: dict) -> tuple[Path, Path]:

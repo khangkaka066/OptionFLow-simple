@@ -267,15 +267,15 @@ def main() -> None:
         raw_frames=raw_frames,
         tenor_atm_iv=tenor_atm_iv,
     )
-    deleted_cboe_raw = storage.delete_raw_cboe(raw_paths)
+    deleted_raw = storage.delete_raw(raw_paths)
 
     print_summary(summary_dict, report_dict)
     print(f"\nSaved outputs to: {output_dir}")
     print(f"History snapshots: {history_paths['snapshots']}")
     print(f"History by-strike: {history_paths['by_strike_history']}")
     print(f"Market dataset: {market_paths.get('by_strike')}")
-    if deleted_cboe_raw:
-        print(f"Deleted raw CBOE JSON after history write: {deleted_cboe_raw}")
+    if deleted_raw:
+        print(f"Deleted raw JSON after history write: {', '.join(str(p) for p in deleted_raw)}")
 
 
 if __name__ == "__main__":

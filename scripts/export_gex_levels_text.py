@@ -23,6 +23,14 @@ def parse_args() -> argparse.Namespace:
         "against the summary's cash spot, added to every exported level so it lines up "
         "on a futures chart. Omit to export raw cash-index levels (default).",
     )
+    parser.add_argument(
+        "--tick-size",
+        type=float,
+        default=None,
+        help="Round every futures-adjusted level to the nearest multiple of this tick size "
+        "(e.g. 0.25 for NQ). Only applies when --futures-ticker is set. Defaults to 0.25 "
+        "when --futures-ticker is given; pass 0 to disable rounding.",
+    )
     return parser.parse_args()
 
 
@@ -64,7 +72,7 @@ def fmt_level(value, decimals: int = 0) -> str:
         return f"{number:.{decimals}f}"
     if number.is_integer():
         return str(int(number))
-    return f"{number:g}"
+    return f"{number:.4f}".rstrip("0").rstrip(".")
 
 
 def fetch_day_high_low(ticker: str) -> tuple[float | None, float | None]:
@@ -76,7 +84,16 @@ def fetch_day_high_low(ticker: str) -> tuple[float | None, float | None]:
         return None, None
 
 
-def build_line(summary: dict, basis: float | None = None, futures_ticker: str | None = None) -> str:
+def round_to_tick(value: float, tick_size: float) -> float:
+    return round(value / tick_size) * tick_size
+
+
+def build_line(
+    summary: dict,
+    basis: float | None = None,
+    futures_ticker: str | None = None,
+    tick_size: float | None = None,
+) -> str:
     ticker = summary["ticker"].upper()
     top = summary.get("top_abs_gex_levels", [])
     gex_levels = [item.get("strike") for item in top[:10]]
@@ -86,7 +103,10 @@ def build_line(summary: dict, basis: float | None = None, futures_ticker: str | 
     def adj(value):
         if value is None or basis is None:
             return value
-        return float(value) + basis
+        adjusted = float(value) + basis
+        if tick_size:
+            adjusted = round_to_tick(adjusted, tick_size)
+        return adjusted
 
     label = f"${ticker} ({futures_ticker} adj.)" if basis else f"${ticker}"
 
@@ -130,12 +150,15 @@ def main() -> None:
     basis = None
     if args.futures_ticker and summary.get("spot") is not None:
         basis = fetch_futures_basis(args.futures_ticker, summary["spot"])
+    tick_size = args.tick_size
+    if tick_size is None:
+        tick_size = 0.25 if args.futures_ticker else None
     day_low, day_high = fetch_day_high_low(summary["ticker"])
     if day_low is not None:
         summary["one_day_min"] = day_low
     if day_high is not None:
         summary["one_day_max"] = day_high
-    line = build_line(summary, basis=basis, futures_ticker=args.futures_ticker)
+    line = build_line(summary, basis=basis, futures_ticker=args.futures_ticker, tick_size=tick_size)
     output.write_text(line + "\n", encoding="utf-8")
     print(f"Saved levels text: {output}")
     print(line)
