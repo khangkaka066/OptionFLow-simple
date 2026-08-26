@@ -3344,7 +3344,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window", type=float, default=14)
     parser.add_argument("--rate", type=float, default=0.04)
     parser.add_argument("--top", type=int, default=10)
+    parser.add_argument(
+        "--no-github-pull",
+        action="store_true",
+        help="Skip the startup git pull that syncs GitHub Actions history back to this machine.",
+    )
     return parser.parse_args()
+
+
+def pull_github_updates_on_startup(enabled: bool = True) -> None:
+    if not enabled:
+        print("GitHub sync skipped (--no-github-pull).", flush=True)
+        return
+    if not (PROJECT_ROOT / ".git").exists():
+        print("GitHub sync skipped: this folder is not a git repo.", flush=True)
+        return
+    try:
+        result = subprocess.run(
+            ["git", "pull", "--ff-only"],
+            cwd=PROJECT_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except Exception as exc:
+        print(f"GitHub sync warning: could not run git pull ({exc}).", flush=True)
+        return
+    output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+    if result.returncode == 0:
+        first_line = output.splitlines()[0] if output else "Already up to date."
+        print(f"GitHub sync ok: {first_line}", flush=True)
+    else:
+        print("GitHub sync warning: git pull --ff-only failed; continuing with local data.", flush=True)
+        if output:
+            print(output, flush=True)
 
 
 def latest_summary_path(ticker: str) -> Path:
@@ -4640,6 +4674,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     global COLLECT_START_OFFSET_MIN
     args = parse_args()
+    pull_github_updates_on_startup(not args.no_github_pull)
     COLLECT_START_OFFSET_MIN = args.collect_start_offset_min
     state = LiveState()
     state.session["collection_start_utc"] = collection_start_utc(state.session["market_open_utc"])
