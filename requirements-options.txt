@@ -5,3 +5,5 @@ numpy
 scipy
 pyarrow
 plotly
+duckdb
+python-dotenv

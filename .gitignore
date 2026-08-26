@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.env
 
 # Generated market data and dashboards can become large.
 # GitHub Actions uploads these as artifacts instead.

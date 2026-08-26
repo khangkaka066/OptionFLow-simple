@@ -22,7 +22,7 @@ import pandas as pd
 
 import storage
 from bsm import years_from_override, years_to_expiry
-from exposure import aggregate_by_strike, build_summary, compute_greeks
+from exposure import aggregate_by_strike, build_summary, compute_greeks, nearest_atm_iv
 from reconcile import reconcile_chain
 from sources import cboe, yahoo
 
@@ -169,7 +169,7 @@ def main() -> None:
         yahoo_data = yahoo_raw_to_chain(yahoo_raw)
         if args.refresh_spot:
             yf = yahoo.import_yfinance()
-            yahoo_data.spot = yahoo.get_spot(yf.Ticker(ticker_symbol))
+            yahoo_data.spot = yahoo.get_spot(yf.Ticker(yahoo._yahoo_symbol(ticker_symbol)))
         expiry = args.expiry
     else:
         yahoo_data = yahoo.fetch_chain(ticker_symbol, args.expiry)
@@ -199,6 +199,18 @@ def main() -> None:
     )
     chain = compute_greeks(reconciled, yahoo_data.spot, years_by_expiry, args.rate)
     by_strike = aggregate_by_strike(chain)
+
+    tenor_atm_iv: dict[str, float] | None = None
+    if args.all_expiries and included_expiries:
+        tenor_atm_iv = {}
+        for exp in sorted(included_expiries)[:3]:
+            exp_chain = chain[chain["expiry"] == exp]
+            if exp_chain.empty:
+                continue
+            exp_by_strike = aggregate_by_strike(exp_chain)
+            atm_iv = nearest_atm_iv(exp_by_strike, yahoo_data.spot)
+            if atm_iv is not None:
+                tenor_atm_iv[exp] = atm_iv
     summary = build_summary(
         ticker_symbol,
         expiry,
@@ -216,13 +228,54 @@ def main() -> None:
     summary_dict = asdict(summary)
     report_dict = report.as_dict()
 
-    storage.save_raw(output_dir, ticker_symbol, expiry, ts, cboe_data.raw, yahoo_chain_to_raw(yahoo_data))
+    raw_paths = storage.save_raw(output_dir, ticker_symbol, expiry, ts, cboe_data.raw, yahoo_chain_to_raw(yahoo_data))
+    raw_frames = [
+        storage.normalize_raw_chain(
+            cboe_data.chain,
+            capture_ts=summary_dict["snapshot_utc"],
+            ticker=ticker_symbol,
+            source="cboe",
+            spot=cboe_data.underlying_price,
+        ),
+        storage.normalize_raw_chain(
+            pd.concat([yahoo_data.calls, yahoo_data.puts], ignore_index=True),
+            capture_ts=summary_dict["snapshot_utc"],
+            ticker=ticker_symbol,
+            source="yahoo",
+            spot=yahoo_data.spot,
+        ),
+    ]
     snapshot_paths = storage.save_snapshot(output_dir, ticker_symbol, expiry, ts, by_strike, summary_dict, report_dict)
     storage.update_latest(output_dir, ticker_symbol, expiry, by_strike, summary_dict)
     storage.append_replay_index(output_dir, ticker_symbol, expiry, ts, snapshot_paths)
+    history_paths = storage.append_history_store(
+        output_dir,
+        ticker_symbol,
+        expiry,
+        ts,
+        by_strike,
+        summary_dict,
+        report_dict,
+        raw_paths=raw_paths,
+        snapshot_paths=snapshot_paths,
+    )
+    market_paths = storage.append_market_dataset(
+        output_dir,
+        ticker=ticker_symbol,
+        summary_dict=summary_dict,
+        by_strike=by_strike,
+        raw_frames=raw_frames,
+        tenor_atm_iv=tenor_atm_iv,
+    )
+    deleted_cboe_raw = storage.delete_raw_cboe(raw_paths)
 
     print_summary(summary_dict, report_dict)
     print(f"\nSaved outputs to: {output_dir}")
+    print(f"History snapshots: {history_paths['snapshots']}")
+    print(f"History by-strike: {history_paths['by_strike_history']}")
+    print(f"Market dataset: {market_paths.get('by_strike')}")
+    if deleted_cboe_raw:
+        print(f"Deleted raw CBOE JSON after history write: {deleted_cboe_raw}")
 
 
 if __name__ == "__main__":

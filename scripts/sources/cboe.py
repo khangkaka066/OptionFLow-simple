@@ -16,6 +16,11 @@ import requests
 
 CBOE_DELAYED_QUOTES_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options/{symbol}.json"
 
+# CBOE delayed-quotes convention: cash-settled index roots are underscore-prefixed.
+CBOE_SYMBOL_OVERRIDES = {
+    "NDX": "_NDX",
+}
+
 _OPTION_SYMBOL_RE = re.compile(r"^(?P<root>[A-Z]+)(?P<date>\d{6})(?P<type>[CP])(?P<strike>\d{8})$")
 
 
@@ -40,7 +45,8 @@ def parse_option_symbol(symbol: str) -> tuple[str, str, float] | None:
 
 
 def fetch_raw(ticker: str, timeout: float = 15.0) -> dict:
-    url = CBOE_DELAYED_QUOTES_URL.format(symbol=ticker.upper())
+    symbol = CBOE_SYMBOL_OVERRIDES.get(ticker.upper(), ticker.upper())
+    url = CBOE_DELAYED_QUOTES_URL.format(symbol=symbol)
     response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
     response.raise_for_status()
     return response.json()
