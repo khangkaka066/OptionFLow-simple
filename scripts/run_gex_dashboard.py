@@ -117,6 +117,13 @@ def parse_args() -> argparse.Namespace:
         help="With --all-expiries, only include expiries within this many calendar days (default 45).",
     )
     parser.add_argument(
+        "--futures-ticker",
+        default=None,
+        help="Futures ticker (e.g. NQ1!) whose live price is used to compute the basis "
+        "against the summary's cash spot, forwarded to export_gex_levels_text.py so every "
+        "exported level lines up on a futures chart. Omit to export raw cash-index levels.",
+    )
+    parser.add_argument(
         "--no-open",
         action="store_true",
         help="Don't automatically open the generated HTML dashboard.",
@@ -242,6 +249,8 @@ def main() -> None:
         ]
         if args.levels_output:
             levels_cmd += ["--output", str(args.levels_output)]
+        if args.futures_ticker:
+            levels_cmd += ["--futures-ticker", args.futures_ticker]
         run(levels_cmd)
         levels_text = args.levels_output or dataset_dir / f"{ticker}_{expiry}_levels.txt"
 

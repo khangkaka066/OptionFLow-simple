@@ -49,23 +49,28 @@ jobs:
       - name: Build dashboard
         run: python scripts/run_gex_dashboard.py --ticker "$TICKER" --no-open
 
+      - name: Build NDX dashboard (futures basis vs NQ1!)
+        run: python scripts/run_gex_dashboard.py --ticker NDX --futures-ticker NQ1! --no-interactive --no-open
+
       - name: Update lightweight history
-        run: python scripts/update_history.py --ticker "$TICKER"
+        run: |
+          python scripts/update_history.py --ticker "$TICKER"
+          python scripts/update_history.py --ticker NDX
 
       - name: Commit lightweight history
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add history/snapshots.csv history/latest_summary.json
+          git add history/snapshots.csv history/latest_summary.json history/latest_summary_NDX.json
           git diff --cached --quiet || git commit -m "Update QQQ dashboard history (EOD)"
           git push
 
       - name: Prepare GitHub Pages site
         run: |
           mkdir -p public
-          latest_html="$(find data/options -type f -name '*_interactive.html' | sort | tail -n 1)"
-          latest_levels="$(find data/options -type f -name '*_levels.txt' | sort | tail -n 1)"
-          latest_summary="$(find data/options -type f -name '*_summary.json' ! -name '*_[0-9][0-9][0-9][0-9][0-9][0-9]_summary.json' | sort | tail -n 1)"
+          latest_html="$(find data/options -type f -name "${TICKER}_*_interactive.html" | sort | tail -n 1)"
+          latest_levels="$(find data/options -type f -name "${TICKER}_*_levels.txt" | sort | tail -n 1)"
+          latest_summary="$(find data/options -type f -name "${TICKER}_*_summary.json" ! -name "${TICKER}_*_[0-9][0-9][0-9][0-9][0-9][0-9]_summary.json" | sort | tail -n 1)"
           cp "$latest_html" public/index.html
           cp "$latest_levels" public/levels.txt
           cp "$latest_summary" public/latest_summary.json

@@ -106,17 +106,25 @@ def main() -> None:
 
     history_path = args.history_dir / "snapshots.csv"
     rows = read_existing(history_path)
-    rows = [row for row in rows if row.get("snapshot_utc") != new_row["snapshot_utc"]]
+    rows = [
+        row
+        for row in rows
+        if not (row.get("snapshot_utc") == new_row["snapshot_utc"] and row.get("ticker") == new_row["ticker"])
+    ]
     rows.append(new_row)
     rows = sorted(rows, key=lambda row: row.get("snapshot_utc") or "")
 
     write_rows(history_path, rows)
 
+    latest_summary_ticker = args.history_dir / f"latest_summary_{args.ticker.upper()}.json"
+    latest_summary_ticker.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
     latest_summary = args.history_dir / "latest_summary.json"
-    latest_summary.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    if args.ticker.upper() == "QQQ":
+        latest_summary.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     print(f"Updated {history_path} with {len(rows)} rows")
-    print(f"Latest summary: {latest_summary}")
+    print(f"Latest summary: {latest_summary_ticker}")
 
 
 if __name__ == "__main__":
