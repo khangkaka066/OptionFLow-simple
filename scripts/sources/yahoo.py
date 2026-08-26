@@ -169,6 +169,21 @@ def infer_latest_trade_date(calls: pd.DataFrame, puts: pd.DataFrame) -> date | N
     return max(dates)
 
 
+def get_day_high_low(ticker_obj) -> tuple[float | None, float | None]:
+    """Intraday 1D low/high so far, from 1-minute bars of the current session."""
+    try:
+        bars = ticker_obj.history(period="1d", interval="1m")
+    except Exception:
+        return None, None
+    if bars.empty or "High" not in bars or "Low" not in bars:
+        return None, None
+    high = bars["High"].dropna()
+    low = bars["Low"].dropna()
+    if high.empty or low.empty:
+        return None, None
+    return float(low.min()), float(high.max())
+
+
 def effective_snapshot_day(
     requested_snapshot_day: date,
     calls: pd.DataFrame,

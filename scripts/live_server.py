@@ -103,29 +103,10 @@ HTML = """<!doctype html>
   .meta { color: #94A3B8; font-size: 13px; }
   .top-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
   .color-controls { display: flex; align-items: center; gap: 10px; }
-  .history-control {
-    display: inline-flex; align-items: center; gap: 7px; color: #94A3B8;
-    font-size: 12px; font-weight: 600;
-  }
-  .history-control select {
-    min-width: 230px; max-width: 300px; height: 28px;
-    border: 1px solid #263244; border-radius: 6px; background: #0F172A;
-    color: #E5E7EB; padding: 3px 8px; font-size: 12px;
-  }
-  .replay-controls {
-    display: none; align-items: center; gap: 7px; color: #94A3B8;
-    font-size: 12px; font-weight: 600;
-  }
-  .replay-controls.active { display: inline-flex; }
-  .replay-button {
-    height: 28px; min-width: 34px; border: 1px solid #263244; border-radius: 6px;
-    background: #0F172A; color: #E5E7EB; cursor: pointer; font-weight: 700;
-  }
-  .replay-button:disabled { opacity: 0.45; cursor: default; }
-  .replay-slider { width: 180px; accent-color: var(--accent-call); }
-  .replay-time {
-    width: 78px; color: #CBD5E1; font-family: Menlo, Consolas, monospace;
-    font-size: 12px;
+  .panel-date-picker {
+    height: 28px; border: 1px solid #263244; border-radius: 6px;
+    background: #0F172A; color: #E5E7EB; padding: 3px 8px; font-size: 12px;
+    color-scheme: dark; font-family: inherit; margin-left: auto;
   }
   .color-control {
     display: inline-flex; align-items: center; gap: 6px; color: #94A3B8;
@@ -287,14 +268,6 @@ HTML = """<!doctype html>
     <div class="meta" id="status">Starting...</div>
   </div>
   <div class="top-actions">
-    <label class="history-control">History <select id="historySelect"><option value="live">Live realtime</option></select></label>
-    <div class="replay-controls" id="replayControls">
-      <button class="replay-button" id="replayPrev" type="button">&lt;&lt;</button>
-      <button class="replay-button" id="replayPlay" type="button">Play</button>
-      <button class="replay-button" id="replayNext" type="button">&gt;&gt;</button>
-      <input class="replay-slider" id="replaySlider" type="range" min="0" max="0" value="0">
-      <span class="replay-time" id="replayTime">--:--</span>
-    </div>
     <div class="color-controls">
       <label class="color-control">Call <input id="callColor" type="color" value="#22D3EE"><input id="callHex" class="hex-input" value="#22D3EE" spellcheck="false"></label>
       <label class="color-control">Put <input id="putColor" type="color" value="#F59E0B"><input id="putHex" class="hex-input" value="#F59E0B" spellcheck="false"></label>
@@ -340,7 +313,6 @@ HTML = """<!doctype html>
           <option value="CALL_PUT" selected>Call / Put</option>
           <option value="PREMIUM">Premium $ (beta)</option>
         </select>
-        <span id="trackerDate" class="skew-readout">--</span>
         <select id="trackerInterval">
           <option value="1" selected>1m</option>
           <option value="5">5m</option>
@@ -367,7 +339,7 @@ HTML = """<!doctype html>
     </div>
   </div>
   <div class="panel">
-    <div class="panel-header"><span class="dot"></span>IV Rank</div>
+    <div class="panel-header"><span class="dot"></span>IV Rank<input type="date" class="panel-date-picker" id="ivRankDate"></div>
     <div class="body"><div id="ivrank" style="height:340px;"></div></div>
   </div>
   <div class="panel skew-panel">
@@ -397,11 +369,11 @@ HTML = """<!doctype html>
     </div>
   </div>
   <div class="panel">
-    <div class="panel-header"><span class="dot"></span>OI × IV by Strike</div>
+    <div class="panel-header"><span class="dot"></span>OI × IV by Strike<input type="date" class="panel-date-picker" id="oiIvDate"></div>
     <div class="body"><div id="oiiv" style="height:360px;"></div></div>
   </div>
   <div class="panel">
-    <div class="panel-header"><span class="dot put-color"></span>OI by Strike</div>
+    <div class="panel-header"><span class="dot put-color"></span>OI by Strike<input type="date" class="panel-date-picker" id="oiDate"></div>
     <div class="body"><div id="oi" style="height:360px;"></div></div>
   </div>
   <div class="panel">
@@ -413,6 +385,7 @@ HTML = """<!doctype html>
         <button type="button" class="exposure-tab" data-metric="net_vex">VEX</button>
         <button type="button" class="exposure-tab" data-metric="net_chex">CHEX</button>
       </div>
+      <input type="date" class="panel-date-picker" id="exposureGexDate">
     </div>
     <div class="body"><div id="gex" style="height:520px;"></div></div>
   </div>
@@ -425,6 +398,7 @@ HTML = """<!doctype html>
         <button type="button" class="exposure-tab" data-metric="net_vex">VEX</button>
         <button type="button" class="exposure-tab" data-metric="net_chex">CHEX</button>
       </div>
+      <input type="date" class="panel-date-picker" id="exposureDexDate">
     </div>
     <div class="body"><div id="dex" style="height:520px;"></div></div>
   </div>
@@ -454,6 +428,7 @@ HTML = """<!doctype html>
   <div class="panel wide">
     <div class="panel-header">
       <span class="dot" style="background:#FACC15"></span>Levels Export
+      <input type="date" class="panel-date-picker" id="levelsDate">
     </div>
     <div class="body levels-body">
       <div class="levels-row">
@@ -483,10 +458,6 @@ const DEFAULT_ACCENTS = {cyan: COLORS.cyan, orange: COLORS.orange};
 let latestState = null;
 let lastChartKey = "";
 let flowHasInitialized = false;
-let selectedHistoryId = "live";
-let replaySnapshots = [];
-let replayIndex = 0;
-let replayTimer = null;
 let skewExpirySelected = "nearest";
 let skewSeriesVisible = {call: true, put: true, iv: true};
 let skewExpiryOptionsKey = "";
@@ -494,45 +465,6 @@ let skewExpiryOptionsKey = "";
 function resetChartLocks() {
   lastChartKey = "";
   flowHasInitialized = false;
-}
-
-function stopReplay() {
-  if (replayTimer) {
-    clearInterval(replayTimer);
-    replayTimer = null;
-  }
-  const play = document.getElementById("replayPlay");
-  if (play) play.textContent = "Play";
-}
-
-function setReplayVisible(visible) {
-  document.getElementById("replayControls")?.classList.toggle("active", visible);
-  if (!visible) stopReplay();
-}
-
-function updateReplayControls() {
-  const slider = document.getElementById("replaySlider");
-  const time = document.getElementById("replayTime");
-  const prev = document.getElementById("replayPrev");
-  const next = document.getElementById("replayNext");
-  const play = document.getElementById("replayPlay");
-  const max = Math.max(0, replaySnapshots.length - 1);
-  if (slider) {
-    slider.max = String(max);
-    slider.value = String(Math.min(replayIndex, max));
-    slider.disabled = replaySnapshots.length <= 1;
-  }
-  if (time) time.textContent = replaySnapshots[replayIndex] ? timeET(replaySnapshots[replayIndex].snapshot_utc).replace(" ET", "") : "--:--";
-  if (prev) prev.disabled = replayIndex <= 0;
-  if (next) next.disabled = replayIndex >= max;
-  if (play) play.disabled = replaySnapshots.length <= 1;
-}
-
-async function loadReplayIndex(index) {
-  if (!replaySnapshots.length) return;
-  replayIndex = Math.max(0, Math.min(index, replaySnapshots.length - 1));
-  updateReplayControls();
-  await loadHistoricalSnapshot(replaySnapshots[replayIndex].id, false);
 }
 
 function validHex(value) {
@@ -647,7 +579,7 @@ function buildLevelsLine(summary) {
   const ticker = String(summary?.ticker || "QQQ").toUpperCase();
   const basis = Number.isFinite(Number(summary?.futures_basis)) ? Number(summary.futures_basis) : 0;
   const adj = v => (v === null || v === undefined || Number.isNaN(Number(v))) ? v : Number(v) + basis;
-  const label = basis ? `$${ticker} (${summary.futures_ticker} adj.)` : `$${ticker}`;
+  const label = basis ? String(summary.futures_ticker) : `$${ticker}`;
   const top = Array.isArray(summary?.top_abs_gex_levels) ? summary.top_abs_gex_levels : [];
   const gex = top.slice(0, 10).map(item => adj(item?.strike));
   while (gex.length < 10) gex.push(null);
@@ -2909,7 +2841,12 @@ function initExposureTabs() {
         exposurePanelMetric[panelId] = metric;
         try { if (storageKey) localStorage.setItem(storageKey, metric); } catch (_err) {}
         syncActive();
-        drawExposure(panelId, lastDrawState?.by_strike || [], metric, lastDrawState?.latest_summary || {});
+        const stateKey = panelId === "gex" ? "exposureGex" : "exposureDex";
+        if (panelDayState[stateKey] === "live") {
+          drawExposure(panelId, latestState?.by_strike || [], metric, latestState?.latest_summary || {});
+        } else if (panelPayload[stateKey]) {
+          drawExposure(panelId, panelPayload[stateKey].by_strike || [], metric, panelPayload[stateKey].latest_summary || {});
+        }
       });
     });
   });
@@ -3017,80 +2954,169 @@ function renderLevelsRow(exportId, tagId, summary, locked, fallbackTicker) {
   }
 }
 
+function nyDateISO(date = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(date).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+const panelDayState = {
+  levels: "live", ivRank: "live", oiIv: "live", oi: "live", exposureGex: "live", exposureDex: "live"
+};
+const panelPayload = {
+  levels: null, ivRank: null, oiIv: null, oi: null, exposureGex: null, exposureDex: null
+};
+const daySnapshotCache = new Map();
+
+async function fetchDaySnapshot(ticker, dayId) {
+  const key = ticker + "::" + dayId;
+  if (!daySnapshotCache.has(key)) {
+    daySnapshotCache.set(key, fetch("/api/snapshot?id=" + encodeURIComponent(dayId) + "&ticker=" + encodeURIComponent(ticker) + "&ts=" + Date.now())
+      .then(res => res.json())
+      .then(payload => {
+        if (payload.error) throw new Error(payload.error);
+        return payload;
+      })
+      .catch(err => {
+        daySnapshotCache.delete(key);
+        throw err;
+      }));
+  }
+  return daySnapshotCache.get(key);
+}
+
+function drawLevelsPanel() {
+  if (panelDayState.levels === "live") {
+    if (!latestState) return;
+    renderLevelsRow("levelsExport", "levelsTag", latestState.levels_summary, latestState.levels_locked, latestState.latest_summary?.ticker || "QQQ");
+    renderLevelsRow("levelsExportB", "levelsTagB", latestState.levels_summary_secondary, latestState.levels_locked_secondary, latestState.secondary_ticker || "NDX");
+  } else if (panelPayload.levels) {
+    const { primary, secondary } = panelPayload.levels;
+    renderLevelsRow("levelsExport", "levelsTag", primary.levels_summary, true, primary.latest_summary?.ticker || "QQQ");
+    renderLevelsRow("levelsExportB", "levelsTagB", secondary.levels_summary, true, secondary.latest_summary?.ticker || (latestState?.secondary_ticker || "NDX"));
+  }
+}
+
+function drawIvRankPanel() {
+  if (panelDayState.ivRank === "live") {
+    if (!latestState) return;
+    drawIvRank(latestState.history || [], latestState.latest_summary || {});
+  } else if (panelPayload.ivRank) {
+    drawIvRank(panelPayload.ivRank.history || [], panelPayload.ivRank.latest_summary || {});
+  }
+}
+
+function drawOiIvPanel() {
+  if (panelDayState.oiIv === "live") {
+    if (!latestState) return;
+    drawOiIv(latestState.by_strike || [], latestState.latest_summary || {});
+  } else if (panelPayload.oiIv) {
+    drawOiIv(panelPayload.oiIv.by_strike || [], panelPayload.oiIv.latest_summary || {});
+  }
+}
+
+function drawOiPanel() {
+  if (panelDayState.oi === "live") {
+    if (!latestState) return;
+    drawOi(latestState.by_strike || [], latestState.latest_summary || {});
+  } else if (panelPayload.oi) {
+    drawOi(panelPayload.oi.by_strike || [], panelPayload.oi.latest_summary || {});
+  }
+}
+
+function drawExposureGexPanel() {
+  if (panelDayState.exposureGex === "live") {
+    if (!latestState) return;
+    drawExposure("gex", latestState.by_strike || [], exposurePanelMetric.gex, latestState.latest_summary || {});
+  } else if (panelPayload.exposureGex) {
+    drawExposure("gex", panelPayload.exposureGex.by_strike || [], exposurePanelMetric.gex, panelPayload.exposureGex.latest_summary || {});
+  }
+}
+
+function drawExposureDexPanel() {
+  if (panelDayState.exposureDex === "live") {
+    if (!latestState) return;
+    drawExposure("dex", latestState.by_strike || [], exposurePanelMetric.dex, latestState.latest_summary || {});
+  } else if (panelPayload.exposureDex) {
+    drawExposure("dex", panelPayload.exposureDex.by_strike || [], exposurePanelMetric.dex, panelPayload.exposureDex.latest_summary || {});
+  }
+}
+
+function redrawPinnablePanels() {
+  drawLevelsPanel();
+  drawIvRankPanel();
+  drawOiIvPanel();
+  drawOiPanel();
+  drawExposureGexPanel();
+  drawExposureDexPanel();
+}
+
+function bindPanelDatePicker(key, inputId, onPick) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.value = nyDateISO();
+  input.addEventListener("change", async () => {
+    const value = input.value;
+    if (!value || value === nyDateISO()) {
+      input.value = nyDateISO();
+      panelDayState[key] = "live";
+      panelPayload[key] = null;
+      redrawPinnablePanels();
+      return;
+    }
+    try {
+      await onPick(value);
+      panelDayState[key] = value;
+      redrawPinnablePanels();
+    } catch (err) {
+      document.getElementById("status").textContent = "History error: " + err.message;
+    }
+  });
+}
+
+function initPanelDatePickers() {
+  bindPanelDatePicker("levels", "levelsDate", async value => {
+    const dayId = "day:" + value;
+    const primaryTicker = latestState?.latest_summary?.ticker || "QQQ";
+    const secondaryTicker = latestState?.secondary_ticker || "NDX";
+    const [primary, secondary] = await Promise.all([
+      fetchDaySnapshot(primaryTicker, dayId),
+      fetchDaySnapshot(secondaryTicker, dayId),
+    ]);
+    panelPayload.levels = { primary, secondary };
+  });
+  bindPanelDatePicker("ivRank", "ivRankDate", async value => {
+    panelPayload.ivRank = await fetchDaySnapshot(latestState?.latest_summary?.ticker || "QQQ", "day:" + value);
+  });
+  bindPanelDatePicker("oiIv", "oiIvDate", async value => {
+    panelPayload.oiIv = await fetchDaySnapshot(latestState?.latest_summary?.ticker || "QQQ", "day:" + value);
+  });
+  bindPanelDatePicker("oi", "oiDate", async value => {
+    panelPayload.oi = await fetchDaySnapshot(latestState?.latest_summary?.ticker || "QQQ", "day:" + value);
+  });
+  bindPanelDatePicker("exposureGex", "exposureGexDate", async value => {
+    panelPayload.exposureGex = await fetchDaySnapshot(latestState?.latest_summary?.ticker || "QQQ", "day:" + value);
+  });
+  bindPanelDatePicker("exposureDex", "exposureDexDate", async value => {
+    panelPayload.exposureDex = await fetchDaySnapshot(latestState?.latest_summary?.ticker || "QQQ", "day:" + value);
+  });
+}
+initPanelDatePickers();
+
 function drawAll(state) {
   lastDrawState = state;
-  renderLevelsRow(
-    "levelsExport",
-    "levelsTag",
-    state.levels_summary,
-    state.levels_locked,
-    state.latest_summary?.ticker || "QQQ"
-  );
-  renderLevelsRow(
-    "levelsExportB",
-    "levelsTagB",
-    state.levels_summary_secondary,
-    state.levels_locked_secondary,
-    state.secondary_ticker || "NDX"
-  );
   drawFlow(state.points || [], state.session || null, state.candles || []);
   drawFlowTracker(state.points || [], state.session || null);
-  drawIvRank(state.history || [], state.latest_summary || {});
   drawSkew(state.by_strike || [], state.latest_summary || {}, state.skew_tenors || []);
-  drawOiIv(state.by_strike || [], state.latest_summary || {});
-  drawOi(state.by_strike || [], state.latest_summary || {});
-  drawExposure("gex", state.by_strike || [], exposurePanelMetric.gex, state.latest_summary || {});
-  drawExposure("dex", state.by_strike || [], exposurePanelMetric.dex, state.latest_summary || {});
   const gexSession = state.session ? {...state.session, history_snapshot_id: state.history_snapshot_id || null} : state.session;
   drawGexRibbon(state.gex_ribbon || [], state.points || [], state.latest_summary || {}, gexSession, state.candles || []);
-}
-
-async function loadHistoryChoices() {
-  const select = document.getElementById("historySelect");
-  if (!select) return;
-  try {
-    const res = await fetch("/api/history?ts=" + Date.now());
-    const payload = await res.json();
-    const currentValue = select.value || "live";
-    select.innerHTML = '<option value="live">Live realtime</option>';
-    for (const item of payload.snapshots || []) {
-      const option = document.createElement("option");
-      option.value = item.id;
-      option.textContent = item.label;
-      select.appendChild(option);
-    }
-    select.value = [...select.options].some(opt => opt.value === currentValue) ? currentValue : "live";
-  } catch (err) {
-    console.warn("Could not load history choices", err);
-  }
-}
-
-async function loadHistoricalSnapshot(snapshotId, resetReplay = true) {
-  const res = await fetch("/api/snapshot?id=" + encodeURIComponent(snapshotId) + "&ts=" + Date.now());
-  const state = await res.json();
-  if (state.error) throw new Error(state.error);
-  const requestedId = snapshotId;
-  selectedHistoryId = requestedId.startsWith("day:") ? requestedId : snapshotId;
-  if (resetReplay) {
-    replaySnapshots = state.replay_snapshots || [];
-    replayIndex = Math.max(0, replaySnapshots.findIndex(item => item.id === snapshotId));
-    if (replayIndex < 0 && replaySnapshots.length) replayIndex = replaySnapshots.length - 1;
-    setReplayVisible(replaySnapshots.length > 0);
-  }
-  latestState = state;
-  resetChartLocks();
-  drawAll(state);
-  updateReplayControls();
-  document.getElementById("status").textContent = "Viewing history · " + (state.latest_summary?.snapshot_vn || state.latest_summary?.snapshot_utc || snapshotId);
+  redrawPinnablePanels();
 }
 
 async function update() {
   const res = await fetch("/api/state?ts=" + Date.now());
   const state = await res.json();
-  if (selectedHistoryId !== "live") {
-    document.getElementById("clock").textContent = new Date().toLocaleTimeString();
-    return;
-  }
   latestState = state;
   const status = [
     state.running ? "Running" : "Stopped",
@@ -3144,56 +3170,6 @@ document.getElementById("trackerResetZoom")?.addEventListener("click", () => {
 });
 window.addEventListener("resize", () => {
   if (latestState) drawAll(latestState);
-});
-loadHistoryChoices();
-document.getElementById("historySelect")?.addEventListener("change", async event => {
-  const value = event.target.value;
-  if (value === "live") {
-    selectedHistoryId = "live";
-    replaySnapshots = [];
-    replayIndex = 0;
-    setReplayVisible(false);
-    resetChartLocks();
-    await update();
-    return;
-  }
-  try {
-    await loadHistoricalSnapshot(value);
-  } catch (err) {
-    document.getElementById("status").textContent = "History error: " + err.message;
-  }
-});
-document.getElementById("replaySlider")?.addEventListener("input", async event => {
-  stopReplay();
-  await loadReplayIndex(Number(event.target.value));
-});
-document.getElementById("replayPrev")?.addEventListener("click", async () => {
-  stopReplay();
-  await loadReplayIndex(replayIndex - 1);
-});
-document.getElementById("replayNext")?.addEventListener("click", async () => {
-  stopReplay();
-  await loadReplayIndex(replayIndex + 1);
-});
-document.getElementById("replayPlay")?.addEventListener("click", () => {
-  if (replayTimer) {
-    stopReplay();
-    return;
-  }
-  const play = document.getElementById("replayPlay");
-  if (play) play.textContent = "Pause";
-  replayTimer = setInterval(async () => {
-    if (!replaySnapshots.length || replayIndex >= replaySnapshots.length - 1) {
-      stopReplay();
-      return;
-    }
-    try {
-      await loadReplayIndex(replayIndex + 1);
-    } catch (err) {
-      stopReplay();
-      document.getElementById("status").textContent = "Replay error: " + err.message;
-    }
-  }, 900);
 });
 update();
 setInterval(update, 10000);
@@ -4278,12 +4254,26 @@ def day_series_from_history(summary_history_path: Path, selected_summary: dict, 
     return points, ribbon
 
 
+def candles_for_session(ticker: str, session: dict) -> tuple[list[dict], str | None]:
+    if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
+        return [], "Alpaca API key not configured"
+    try:
+        return fetch_alpaca_bars(
+            ticker,
+            session["market_open_utc"],
+            end_iso=session.get("market_close_utc"),
+        ), None
+    except Exception as exc:
+        return [], str(exc)
+
+
 def load_snapshot_state(snapshot_id: str, ticker: str, window: float) -> dict:
     if snapshot_id.startswith("day:"):
         snapshot_id = latest_snapshot_id_for_trading_day(snapshot_id, ticker)
     if snapshot_id.startswith("history:"):
         summary_history_path, snapshot_utc = parse_history_snapshot_id(snapshot_id)
         summary, point, rows, history, gex_snapshot = chart_payload_from_history(summary_history_path, snapshot_utc, ticker, window)
+        history = [row for row in history if str(row.get("snapshot_utc") or "") <= str(summary.get("snapshot_utc") or "")]
         points, ribbon = day_series_from_history(summary_history_path, summary, ticker, window)
         replay_snapshots = replay_snapshots_from_history(summary_history_path, summary, ticker)
         points, ribbon = filter_replay_series(points, ribbon, session_from_summary(summary), summary["snapshot_utc"])
@@ -4294,6 +4284,8 @@ def load_snapshot_state(snapshot_id: str, ticker: str, window: float) -> dict:
         snapshot_vn = pd.to_datetime(summary.get("snapshot_utc"), errors="coerce", utc=True)
         if pd.notna(snapshot_vn):
             summary["snapshot_vn"] = snapshot_vn.tz_convert(VN_TZ).isoformat()
+        session = session_from_summary(summary)
+        candles, candles_error = candles_for_session(ticker, session)
         return {
             "points": points,
             "gex_ribbon": ribbon,
@@ -4306,12 +4298,15 @@ def load_snapshot_state(snapshot_id: str, ticker: str, window: float) -> dict:
             "successes": 0,
             "failures": 0,
             "next_fetch": None,
-            "session": session_from_summary(summary),
+            "session": session,
+            "candles": candles,
+            "candles_error": candles_error,
             "history_snapshot_id": snapshot_id,
             "replay_snapshots": replay_snapshots,
         }
     summary_path = summary_path_from_id(snapshot_id)
     summary, point, rows, history, gex_snapshot = chart_payload_from_summary_path(summary_path, ticker, window)
+    history = [row for row in history if str(row.get("snapshot_utc") or "") <= str(summary.get("snapshot_utc") or "")]
     points, ribbon = day_series_from_summary_path(summary_path, ticker, window)
     replay_snapshots = replay_snapshots_from_summary_path(summary_path, ticker)
     points, ribbon = filter_replay_series(points, ribbon, session_from_summary(summary), summary["snapshot_utc"])
@@ -4322,6 +4317,8 @@ def load_snapshot_state(snapshot_id: str, ticker: str, window: float) -> dict:
     snapshot_vn = pd.to_datetime(summary.get("snapshot_utc"), errors="coerce", utc=True)
     if pd.notna(snapshot_vn):
         summary["snapshot_vn"] = snapshot_vn.tz_convert(VN_TZ).isoformat()
+    session = session_from_summary(summary)
+    candles, candles_error = candles_for_session(ticker, session)
     return {
         "points": points,
         "gex_ribbon": ribbon,
@@ -4334,7 +4331,9 @@ def load_snapshot_state(snapshot_id: str, ticker: str, window: float) -> dict:
         "successes": 0,
         "failures": 0,
         "next_fetch": None,
-        "session": session_from_summary(summary),
+        "session": session,
+        "candles": candles,
+        "candles_error": candles_error,
         "history_snapshot_id": snapshot_id,
         "replay_snapshots": replay_snapshots,
     }
@@ -4429,6 +4428,11 @@ def collector(args: argparse.Namespace, state: LiveState) -> None:
                     # poll crosses 09:00, stop overwriting so the last
                     # pre-09:00 value stays frozen for the rest of the day.
                     if not state.levels_locked:
+                        day_low, day_high = fetch_day_high_low(args.ticker)
+                        if day_low is not None:
+                            summary["one_day_min"] = day_low
+                        if day_high is not None:
+                            summary["one_day_max"] = day_high
                         levels_lock_ts = pd.Timestamp(state.session["collection_start_utc"])
                         if pd.notna(point_ts) and point_ts >= levels_lock_ts:
                             if state.levels_summary is None:
@@ -4468,6 +4472,17 @@ def fetch_futures_basis(futures_ticker: str, cash_spot: float) -> float | None:
         return None
 
 
+def fetch_day_high_low(ticker: str) -> tuple[float | None, float | None]:
+    """Live 1D low/high so far from Yahoo Finance 1-minute bars, for the
+    Levels Export panel's "1D Min"/"1D Max" fields."""
+    try:
+        yf = yahoo.import_yfinance()
+        ticker_obj = yf.Ticker(yahoo._yahoo_symbol(ticker))
+        return yahoo.get_day_high_low(ticker_obj)
+    except Exception:
+        return None, None
+
+
 def levels_collector(
     ticker: str,
     base_args: argparse.Namespace,
@@ -4499,6 +4514,14 @@ def levels_collector(
                         summary["futures_basis"] = basis
                         summary["futures_ticker"] = futures_ticker
                 with state.lock:
+                    already_locked_secondary = state.levels_locked_secondary
+                if not already_locked_secondary:
+                    day_low, day_high = fetch_day_high_low(ticker)
+                    if day_low is not None:
+                        summary["one_day_min"] = day_low
+                    if day_high is not None:
+                        summary["one_day_max"] = day_high
+                with state.lock:
                     if not state.levels_locked_secondary:
                         levels_lock_ts = pd.Timestamp(state.session["collection_start_utc"])
                         if pd.notna(point_ts) and point_ts >= levels_lock_ts:
@@ -4512,20 +4535,23 @@ def levels_collector(
         next_run += base_args.interval_seconds
 
 
-def fetch_alpaca_bars(ticker: str, start_iso: str, timeframe: str = "1Min") -> list[dict]:
+def fetch_alpaca_bars(ticker: str, start_iso: str, timeframe: str = "1Min", end_iso: str | None = None) -> list[dict]:
+    params = {
+        "timeframe": timeframe,
+        "start": start_iso,
+        "limit": 1000,
+        "feed": "iex",
+        "adjustment": "raw",
+    }
+    if end_iso:
+        params["end"] = end_iso
     resp = requests.get(
         ALPACA_DATA_URL.format(symbol=ticker),
         headers={
             "APCA-API-KEY-ID": ALPACA_API_KEY,
             "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
         },
-        params={
-            "timeframe": timeframe,
-            "start": start_iso,
-            "limit": 1000,
-            "feed": "iex",
-            "adjustment": "raw",
-        },
+        params=params,
         timeout=10,
     )
     resp.raise_for_status()
@@ -4586,13 +4612,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send(json.dumps(self.state.snapshot(), default=str, allow_nan=False), "application/json")
             return
         if parsed.path == "/api/history":
-            payload = {"snapshots": list_trading_days(self.ticker)}
+            ticker = parse_qs(parsed.query).get("ticker", [self.ticker])[0] or self.ticker
+            payload = {"snapshots": list_trading_days(ticker)}
             self.send(json.dumps(payload, default=str, allow_nan=False), "application/json")
             return
         if parsed.path == "/api/snapshot":
+            ticker = parse_qs(parsed.query).get("ticker", [self.ticker])[0] or self.ticker
             snapshot_id = parse_qs(parsed.query).get("id", [""])[0]
             try:
-                payload = load_snapshot_state(snapshot_id, self.ticker, self.window)
+                payload = load_snapshot_state(snapshot_id, ticker, self.window)
                 self.send(json.dumps(payload, default=str, allow_nan=False), "application/json")
             except Exception as exc:
                 self.send(json.dumps({"error": str(exc)}), "application/json", HTTPStatus.BAD_REQUEST)

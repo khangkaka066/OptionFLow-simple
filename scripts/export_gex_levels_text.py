@@ -67,6 +67,15 @@ def fmt_level(value, decimals: int = 0) -> str:
     return f"{number:g}"
 
 
+def fetch_day_high_low(ticker: str) -> tuple[float | None, float | None]:
+    try:
+        yf = yahoo.import_yfinance()
+        ticker_obj = yf.Ticker(yahoo._yahoo_symbol(ticker))
+        return yahoo.get_day_high_low(ticker_obj)
+    except Exception:
+        return None, None
+
+
 def build_line(summary: dict, basis: float | None = None, futures_ticker: str | None = None) -> str:
     ticker = summary["ticker"].upper()
     top = summary.get("top_abs_gex_levels", [])
@@ -94,9 +103,9 @@ def build_line(summary: dict, basis: float | None = None, futures_ticker: str | 
         "HVL",
         fmt_level(hvl, decimals=2),
         "1D Min",
-        "NA",
+        fmt_level(adj(summary.get("one_day_min"))),
         "1D Max",
-        "NA",
+        fmt_level(adj(summary.get("one_day_max"))),
         "Call Resistance 0DTE",
         fmt_level(adj(summary.get("call_resistance"))),
         "Put Support 0DTE",
@@ -121,6 +130,11 @@ def main() -> None:
     basis = None
     if args.futures_ticker and summary.get("spot") is not None:
         basis = fetch_futures_basis(args.futures_ticker, summary["spot"])
+    day_low, day_high = fetch_day_high_low(summary["ticker"])
+    if day_low is not None:
+        summary["one_day_min"] = day_low
+    if day_high is not None:
+        summary["one_day_max"] = day_high
     line = build_line(summary, basis=basis, futures_ticker=args.futures_ticker)
     output.write_text(line + "\n", encoding="utf-8")
     print(f"Saved levels text: {output}")
