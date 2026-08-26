@@ -9,6 +9,17 @@ import numpy as np
 import pandas as pd
 
 
+# Yahoo Finance index notation.
+YAHOO_SYMBOL_OVERRIDES = {
+    "NDX": "^NDX",
+    "NQ1!": "NQ=F",
+}
+
+
+def _yahoo_symbol(ticker: str) -> str:
+    return YAHOO_SYMBOL_OVERRIDES.get(ticker.upper(), ticker.upper())
+
+
 @dataclass
 class YahooChain:
     ticker: str
@@ -81,7 +92,7 @@ def clean_chain(chain: pd.DataFrame, option_type: str, expiry: str) -> pd.DataFr
 
 def fetch_chain(ticker: str, expiry: str | None = None) -> YahooChain:
     yf = import_yfinance()
-    ticker_obj = yf.Ticker(ticker.upper())
+    ticker_obj = yf.Ticker(_yahoo_symbol(ticker))
     expirations = list(ticker_obj.options)
     if not expirations:
         raise RuntimeError(f"No Yahoo option expirations returned for {ticker.upper()}.")
@@ -114,7 +125,7 @@ def fetch_multi_chain(ticker: str, horizon_days: int = 45) -> YahooChain:
     horizon, so the result is never empty.
     """
     yf = import_yfinance()
-    ticker_obj = yf.Ticker(ticker.upper())
+    ticker_obj = yf.Ticker(_yahoo_symbol(ticker))
     expirations = list(ticker_obj.options)
     if not expirations:
         raise RuntimeError(f"No Yahoo option expirations returned for {ticker.upper()}.")
