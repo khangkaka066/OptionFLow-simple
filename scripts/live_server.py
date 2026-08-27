@@ -579,7 +579,7 @@ function buildLevelsLine(summary) {
   const ticker = String(summary?.ticker || "QQQ").toUpperCase();
   const basis = Number.isFinite(Number(summary?.futures_basis)) ? Number(summary.futures_basis) : 0;
   const adj = v => (v === null || v === undefined || Number.isNaN(Number(v))) ? v : Number(v) + basis;
-  const label = basis ? String(summary.futures_ticker) : `$${ticker}`;
+  const label = summary?.futures_ticker ? String(summary.futures_ticker) : `$${ticker}`;
   const top = Array.isArray(summary?.top_abs_gex_levels) ? summary.top_abs_gex_levels : [];
   const gex = top.slice(0, 10).map(item => adj(item?.strike));
   while (gex.length < 10) gex.push(null);
@@ -3720,39 +3720,27 @@ def seed_session_data(ticker: str, session: dict, window: float) -> tuple[list[d
     return points, ribbon
 
 
-def seed_levels_summary(ticker: str, session: dict) -> tuple[dict | None, bool]:
-    """Return the 09:00 NY levels summary for today, and whether it's locked.
+def seed_prev_day_eod_summary(ticker: str, today_trading_date: str) -> dict | None:
+    """Return the last recorded snapshot strictly before today's trading
+    date - the previous completed session's actual closing chain.
 
-    Levels Export is intended as a pre-market/EOD-style reference line, so
-    once 09:00 NY (session["collection_start_utc"], default 30-minute
-    pre-open offset) has passed for the day, it locks to the *last* snapshot
-    strictly before that time — not the one that crossed it — so the frozen
-    value isn't already influenced by the new session. Before 09:00 NY has
-    been reached at all, the panel may show the latest available value as an
-    unlocked placeholder. If no pre-09:00 snapshot exists on a day that has
-    otherwise crossed 09:00 (e.g. server started late), fall back to the
-    earliest snapshot at/after the lock so the panel is never left empty.
+    Levels Export is meant to always show a true EOD reference: on
+    2026-08-27 it shows the 2026-08-26 close, all day, regardless of time -
+    never an early poll of *today* recomputed with Yahoo's live, moving
+    premarket spot. Falls back through JSON summaries on disk if no
+    Parquet history exists yet for the ticker.
     """
-    lock_ts = pd.Timestamp(session["collection_start_utc"])
     latest_history = latest_history_snapshot(ticker)
     if latest_history is not None:
         summary_history_path, _summary = latest_history
         summaries = pd.read_parquet(summary_history_path)
         summaries = summaries[summaries["ticker"].astype(str).str.upper() == ticker.upper()].copy()
         summaries["_snapshot_ts"] = pd.to_datetime(summaries["snapshot_utc"], errors="coerce", utc=True)
-        summaries = summaries[
-            summaries["_snapshot_ts"].notna()
-            & (summaries["_snapshot_ts"].dt.tz_convert(NY_TZ).dt.date.astype(str) == session["trading_date"])
-        ].sort_values("snapshot_utc")
+        summaries = summaries[summaries["_snapshot_ts"].notna()].copy()
+        summaries["_ny_date"] = summaries["_snapshot_ts"].dt.tz_convert(NY_TZ).dt.date.astype(str)
+        summaries = summaries[summaries["_ny_date"] < today_trading_date].sort_values("snapshot_utc")
         if not summaries.empty:
-            crossed_lock = (summaries["_snapshot_ts"] >= lock_ts).any()
-            if crossed_lock:
-                before_lock = summaries[summaries["_snapshot_ts"] < lock_ts]
-                if not before_lock.empty:
-                    return summary_from_history_row(before_lock.iloc[-1].to_dict()), True
-                at_or_after_lock = summaries[summaries["_snapshot_ts"] >= lock_ts]
-                return summary_from_history_row(at_or_after_lock.iloc[0].to_dict()), True
-            return summary_from_history_row(summaries.iloc[-1].to_dict()), False
+            return summary_from_history_row(summaries.iloc[-1].to_dict())
     candidates: list[tuple[pd.Timestamp, dict]] = []
     for path in sorted(DATA_ROOT.glob(f"*/{ticker.upper()}_*_*_summary.json")):
         if len(path.stem.split("_")) != 4:
@@ -3764,19 +3752,12 @@ def seed_levels_summary(ticker: str, session: dict) -> tuple[dict | None, bool]:
         snapshot = pd.to_datetime(summary.get("snapshot_utc"), errors="coerce", utc=True)
         if pd.isna(snapshot):
             continue
-        if snapshot.tz_convert(NY_TZ).date().isoformat() != session["trading_date"]:
+        if snapshot.tz_convert(NY_TZ).date().isoformat() >= today_trading_date:
             continue
         candidates.append((snapshot, summary))
     if not candidates:
-        return None, False
-    crossed_lock = any(item[0] >= lock_ts for item in candidates)
-    if crossed_lock:
-        before_lock = [item for item in candidates if item[0] < lock_ts]
-        if before_lock:
-            return max(before_lock, key=lambda item: item[0])[1], True
-        at_or_after_lock = [item for item in candidates if item[0] >= lock_ts]
-        return min(at_or_after_lock, key=lambda item: item[0])[1], True
-    return max(candidates, key=lambda item: item[0])[1], False
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
 
 
 def seed_locked_snapshot(
@@ -4513,23 +4494,16 @@ def collector(args: argparse.Namespace, state: LiveState) -> None:
                         state.points = [point]
                         state.gex_ribbon = [gex_snapshot]
                         state.session_locked = True
-                    # Levels Export locks to the last snapshot strictly before
-                    # 09:00 NY, showing live placeholders before then. Once a
-                    # poll crosses 09:00, stop overwriting so the last
-                    # pre-09:00 value stays frozen for the rest of the day.
-                    if not state.levels_locked:
+                    # Levels Export always shows the previous completed
+                    # trading day's actual EOD close (seeded once at startup
+                    # in main()), never today's live/recomputed chain. Only
+                    # 1D Min/Max refresh live on top of that frozen base.
+                    if state.levels_summary is not None:
                         day_low, day_high = fetch_day_high_low(args.ticker)
                         if day_low is not None:
-                            summary["one_day_min"] = day_low
+                            state.levels_summary["one_day_min"] = day_low
                         if day_high is not None:
-                            summary["one_day_max"] = day_high
-                        levels_lock_ts = pd.Timestamp(state.session["collection_start_utc"])
-                        if pd.notna(point_ts) and point_ts >= levels_lock_ts:
-                            if state.levels_summary is None:
-                                state.levels_summary = summary
-                            state.levels_locked = True
-                        else:
-                            state.levels_summary = summary
+                            state.levels_summary["one_day_max"] = day_high
                     # DEX/GEX/VEX/CHEX, OI by Strike, OIxIV by Strike and IV
                     # Rank must show true EOD data until 09:00 NY (Yahoo
                     # returns a live premarket spot before then, which would
@@ -4590,9 +4564,12 @@ def levels_collector(
     state: LiveState,
     futures_ticker: str = "",
 ) -> None:
-    """Lightweight sibling of collector(): feeds only the second Levels Export
-    row (levels_summary_secondary), independent of the primary ticker's
-    charts/ribbon/skew state."""
+    """Lightweight sibling of collector(): keeps polling `ticker` so its local
+    Parquet history keeps growing (needed so a *future* day's Levels Export
+    can seed from today's actual close), while the displayed
+    levels_summary_secondary stays frozen at the previous session's EOD
+    (seeded once in main()) with only its live 1D Min/Max and NQ1! futures
+    basis refreshed in place on top of that frozen base."""
     secondary_args = copy.copy(base_args)
     secondary_args.ticker = ticker
     secondary_args.expiry = None
@@ -4604,35 +4581,20 @@ def levels_collector(
         delay = next_run - time.monotonic()
         if delay > 0:
             time.sleep(delay)
-        result = run_snapshot(secondary_args, fetch_tenor=False)
-        if result.returncode == 0:
-            try:
-                summary, point, _rows, _history, _gex_snapshot = load_latest(ticker, secondary_args.window)
-                point_ts = pd.to_datetime(point.get("time"), errors="coerce", utc=True)
-                if futures_ticker and summary.get("spot") is not None:
-                    basis = fetch_futures_basis(futures_ticker, summary["spot"])
-                    if basis is not None:
-                        summary["futures_basis"] = basis
-                        summary["futures_ticker"] = futures_ticker
-                with state.lock:
-                    already_locked_secondary = state.levels_locked_secondary
-                if not already_locked_secondary:
-                    day_low, day_high = fetch_day_high_low(ticker)
-                    if day_low is not None:
-                        summary["one_day_min"] = day_low
-                    if day_high is not None:
-                        summary["one_day_max"] = day_high
-                with state.lock:
-                    if not state.levels_locked_secondary:
-                        levels_lock_ts = pd.Timestamp(state.session["collection_start_utc"])
-                        if pd.notna(point_ts) and point_ts >= levels_lock_ts:
-                            if state.levels_summary_secondary is None:
-                                state.levels_summary_secondary = summary
-                            state.levels_locked_secondary = True
-                        else:
-                            state.levels_summary_secondary = summary
-            except Exception:
-                pass
+        run_snapshot(secondary_args, fetch_tenor=False)
+        with state.lock:
+            summary = state.levels_summary_secondary
+        if summary is not None:
+            day_low, day_high = fetch_day_high_low(ticker)
+            if day_low is not None:
+                summary["one_day_min"] = day_low
+            if day_high is not None:
+                summary["one_day_max"] = day_high
+            if futures_ticker and summary.get("spot") is not None:
+                basis = fetch_futures_basis(futures_ticker, summary["spot"])
+                if basis is not None:
+                    summary["futures_basis"] = basis
+                    summary["futures_ticker"] = futures_ticker
         next_run += base_args.interval_seconds
 
 
@@ -4746,7 +4708,8 @@ def main() -> None:
     state = LiveState()
     state.session["collection_start_utc"] = collection_start_utc(state.session["market_open_utc"])
     state.points, state.gex_ribbon = seed_session_data(args.ticker, state.session, args.window)
-    state.levels_summary, state.levels_locked = seed_levels_summary(args.ticker, state.session)
+    state.levels_summary = seed_prev_day_eod_summary(args.ticker, state.session["trading_date"])
+    state.levels_locked = True
     collect_start_ts = pd.Timestamp(state.session["collection_start_utc"])
     market_open_ts = pd.Timestamp(state.session["market_open_utc"])
     state.latest_summary, state.by_strike, state.history = seed_locked_snapshot(
@@ -4763,9 +4726,20 @@ def main() -> None:
         )
     state.secondary_ticker = args.secondary_ticker.upper() if args.secondary_ticker else ""
     if state.secondary_ticker:
-        state.levels_summary_secondary, state.levels_locked_secondary = seed_levels_summary(
-            state.secondary_ticker, state.session
+        state.levels_summary_secondary = seed_prev_day_eod_summary(
+            state.secondary_ticker, state.session["trading_date"]
         )
+        state.levels_locked_secondary = True
+        secondary_futures_ticker = (args.secondary_futures_ticker or "").upper()
+        if (
+            state.levels_summary_secondary is not None
+            and secondary_futures_ticker
+            and state.levels_summary_secondary.get("spot") is not None
+        ):
+            basis = fetch_futures_basis(secondary_futures_ticker, state.levels_summary_secondary["spot"])
+            if basis is not None:
+                state.levels_summary_secondary["futures_basis"] = basis
+                state.levels_summary_secondary["futures_ticker"] = secondary_futures_ticker
     Handler.state = state
     Handler.ticker = args.ticker.upper()
     Handler.window = args.window
