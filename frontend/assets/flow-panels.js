@@ -1,5 +1,5 @@
 import { COLORS } from "./config.js";
-import { medianFinite, nyMinutes, plotTimeNY, rgbaFromHex } from "./utils.js";
+import { fmtHM, medianFinite, nyMinutes, plotTimeNY, rgbaFromHex } from "./utils.js";
 
 let latestStateProvider = () => null;
 
@@ -253,9 +253,9 @@ export const flowState = {
 let flowDrag = null;
 
 function buildFlowRows(points, session, candles = []) {
-  const flowStartUtc = session && session.market_open_utc
-    ? new Date(session.market_open_utc)
-    : (session && session.collection_start_utc ? new Date(session.collection_start_utc) : null);
+  const flowStartUtc = session && session.collection_start_utc
+    ? new Date(session.collection_start_utc)
+    : (session && session.market_open_utc ? new Date(session.market_open_utc) : null);
   points = points || [];
   if (flowStartUtc && !Number.isNaN(flowStartUtc.getTime())) {
     points = points.filter(p => p.time && new Date(p.time).getTime() >= flowStartUtc.getTime());
@@ -874,9 +874,9 @@ function prepareTrackerSignals(rows) {
 }
 
 function buildTrackerRows(points, session) {
-  const flowStartUtc = session && session.market_open_utc
-    ? new Date(session.market_open_utc)
-    : (session && session.collection_start_utc ? new Date(session.collection_start_utc) : null);
+  const flowStartUtc = session && session.collection_start_utc
+    ? new Date(session.collection_start_utc)
+    : (session && session.market_open_utc ? new Date(session.market_open_utc) : null);
   if (flowStartUtc && !Number.isNaN(flowStartUtc.getTime())) {
     points = (points || []).filter(p => p.time && new Date(p.time).getTime() >= flowStartUtc.getTime());
   }

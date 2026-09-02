@@ -79,6 +79,10 @@ export function timeET(v) {
   }) + " ET";
 }
 
+export function fmtHM(d) {
+  return d.toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false});
+}
+
 export function plotTimeNY(v) {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return v;

@@ -1,5 +1,5 @@
 import { COLORS, EXPOSURE_CONFIG } from "./config.js";
-import { hexToRgb, moneyM, plotTimeNY, rgbaFromHex, timeET } from "./utils.js";
+import { fmtHM, hexToRgb, moneyM, plotTimeNY, rgbaFromHex, timeET } from "./utils.js";
 
 // ---- Heat Tracker: hand-rolled canvas 2D renderer ----
 // Band-scale axes (real strikes / fixed time buckets), snapshot-per-bucket
@@ -27,6 +27,24 @@ function loadHeatPrefs() {
 const heatPrefs = loadHeatPrefs();
 
 export const heatState = {
+  ticker: heatPrefs.ticker,
+  interval: heatPrefs.interval,
+  mode: heatPrefs.mode,
+  spotMode: heatPrefs.spotMode,
+  intensity: heatPrefs.intensity,
+  metric: heatPrefs.metric,
+  sessionKey: "",
+  session: null,
+  grid: null,
+  points: null,
+  candles: null,
+  ribbon: null,
+  summary: null,
+  viewX: [0, 1],
+  viewY: [0, 1],
+  autoFollow: true,
+  pointerInside: false,
+};
 
 let heatDrag = null;
 
@@ -75,10 +93,6 @@ function fmtStrikeLabel(v) {
   return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2)));
 }
 
-function fmtHM(d) {
-  return d.toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false});
-}
-
 function clampView(view, minBound, maxBound) {
   let [v0, v1] = view;
   const span = v1 - v0;
@@ -103,9 +117,9 @@ function buildHeatGrid(state) {
   const cutoffCandidate = session && session.collection_start_utc
     ? new Date(session.collection_start_utc)
     : (sessionOpenForCutoff ? new Date(sessionOpenForCutoff.getTime() - 5 * 60 * 1000) : null);
-  const dataCutoffUtc = sessionOpenForCutoff && !Number.isNaN(sessionOpenForCutoff.getTime())
-    ? sessionOpenForCutoff
-    : (cutoffCandidate && !Number.isNaN(cutoffCandidate.getTime()) ? cutoffCandidate : null);
+  const dataCutoffUtc = cutoffCandidate && !Number.isNaN(cutoffCandidate.getTime())
+    ? cutoffCandidate
+    : (sessionOpenForCutoff && !Number.isNaN(sessionOpenForCutoff.getTime()) ? sessionOpenForCutoff : null);
   let ribbon = state.ribbon || [];
   let points = state.points || [];
   let candles = state.candles || [];
