@@ -18,3 +18,4 @@ range69_visuals/*.csv
 # Local chart/screenshot outputs
 *.png
 *.PNG
+.cache/

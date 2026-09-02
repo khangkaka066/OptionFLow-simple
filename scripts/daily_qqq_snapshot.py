@@ -22,6 +22,7 @@ import pandas as pd
 
 import storage
 from bsm import years_from_override, years_to_expiry
+from cleanup_dead_data import run_cleanup
 from exposure import aggregate_by_strike, build_summary, compute_greeks, nearest_atm_iv
 from reconcile import reconcile_chain
 from sources import cboe, yahoo
@@ -276,6 +277,7 @@ def main() -> None:
     print(f"Market dataset: {market_paths.get('by_strike')}")
     if deleted_raw:
         print(f"Deleted raw JSON after history write: {', '.join(str(p) for p in deleted_raw)}")
+    run_cleanup(apply=True, verbose=False)
 
 
 if __name__ == "__main__":

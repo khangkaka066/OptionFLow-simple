@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QQQ Live Option Flow</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <div class="title">QQQ Live Option Flow</div>
+    <div class="meta" id="status">Starting...</div>
+  </div>
+  <div class="top-actions">
+    <div class="color-controls">
+      <label class="color-control">Call <input id="callColor" type="color" value="#32E63A"><input id="callHex" class="hex-input" value="#32E63A" spellcheck="false"></label>
+      <label class="color-control">Put <input id="putColor" type="color" value="#6B2CFF"><input id="putHex" class="hex-input" value="#6B2CFF" spellcheck="false"></label>
+      <label class="color-control">Bull <input id="bullColor" type="color" value="#FFFFFF"><input id="bullHex" class="hex-input" value="#FFFFFF" spellcheck="false"></label>
+      <label class="color-control">Bear <input id="bearColor" type="color" value="#FF2600"><input id="bearHex" class="hex-input" value="#FF2600" spellcheck="false"></label>
+    </div>
+    <div class="meta" id="clock"></div>
+  </div>
+</div>
+<div class="grid">
+  <div class="panel wide">
+    <div class="panel-header">
+      <span class="dot"></span>Volatility Flow
+      <div class="flow-controls">
+        <select id="flowInterval">
+          <option value="1">1m</option>
+          <option value="5">5m</option>
+          <option value="15">15m</option>
+          <option value="30">30m</option>
+        </select>
+        <select id="flowMoneyness">
+          <option value="ALL">ALL</option>
+          <option value="ITM">ITM</option>
+          <option value="ATM" selected>ATM</option>
+          <option value="OTM">OTM</option>
+        </select>
+        <select id="flowExpiry">
+          <option value="ALL">ALL</option>
+          <option value="0DTE" selected>0DTE</option>
+        </select>
+        <div class="flow-line-menu">
+          <button id="flowLinesToggle" type="button">Lines</button>
+          <div id="flowLinesMenu" class="flow-line-popover">
+            <label><input type="checkbox" data-flow-line="iv" checked> IV smooth</label>
+            <label><input type="checkbox" data-flow-line="ivRaw"> IV raw</label>
+            <label><input type="checkbox" data-flow-line="arv" checked> ARV smooth</label>
+            <label><input type="checkbox" data-flow-line="arvRaw"> ARV raw</label>
+          </div>
+        </div>
+        <button id="flowSpotToggle" type="button">Spot Candles</button>
+        <button id="flowResetZoom" type="button">Reset zoom</button>
+      </div>
+    </div>
+    <div class="body flow-wrap" id="flowWrap">
+      <canvas id="flowCanvas" style="width:100%; height:100%; display:block;"></canvas>
+      <div id="flowTooltip" class="heat-tooltip" style="display:none;"></div>
+    </div>
+  </div>
+  <div class="panel wide">
+    <div class="panel-header">
+      <span class="dot"></span>Flow Tracker
+      <div class="flow-controls">
+        <select id="trackerMode">
+          <option value="CALL_PUT" selected>Call / Put</option>
+          <option value="PREMIUM">Premium $ (beta)</option>
+        </select>
+        <select id="trackerInterval">
+          <option value="1" selected>1m</option>
+          <option value="5">5m</option>
+          <option value="15">15m</option>
+          <option value="30">30m</option>
+        </select>
+        <select id="trackerMoneyness">
+          <option value="ALL">ALL</option>
+          <option value="ITM">ITM</option>
+          <option value="ATM" selected>ATM</option>
+          <option value="OTM">OTM</option>
+        </select>
+        <select id="trackerExpiry">
+          <option value="ALL">ALL</option>
+          <option value="0DTE" selected>0DTE</option>
+        </select>
+        <div class="flow-line-menu">
+          <button id="trackerLinesToggle" type="button">Lines</button>
+          <div id="trackerLinesMenu" class="flow-line-popover">
+            <label><input type="checkbox" data-tracker-line="net" checked> Net smooth</label>
+            <label><input type="checkbox" data-tracker-line="netRaw"> Net raw</label>
+            <label><input type="checkbox" data-tracker-line="call" checked> Call smooth</label>
+            <label><input type="checkbox" data-tracker-line="callRaw"> Call raw</label>
+            <label><input type="checkbox" data-tracker-line="put" checked> Put smooth</label>
+            <label><input type="checkbox" data-tracker-line="putRaw"> Put raw</label>
+          </div>
+        </div>
+        <span id="trackerTicker" class="skew-readout">QQQ</span>
+        <button id="trackerResetZoom" type="button">reset zoom</button>
+      </div>
+    </div>
+    <div class="body flow-wrap" id="trackerWrap">
+      <canvas id="trackerCanvas" style="width:100%; height:100%; display:block;"></canvas>
+      <div id="trackerTooltip" class="heat-tooltip" style="display:none;"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><span class="dot"></span>IV Rank<input type="date" class="panel-date-picker" id="ivRankDate"></div>
+    <div class="body"><div id="ivrank" style="height:340px;"></div></div>
+  </div>
+  <div class="panel skew-panel">
+    <div class="panel-header"><span class="dot" style="background:#FACC15"></span>Volatility Skew
+      <div class="skew-controls">
+        <input type="date" class="panel-date-picker skew-date-picker" id="skewDatePicker">
+        <span id="skewDate" class="skew-readout">--</span>
+        <select id="skewExpiry"></select>
+        <div class="skew-series" id="skewSeries">
+          <button type="button" id="skewSeriesBtn">Calls · Puts · IV</button>
+          <div class="skew-series-menu" id="skewSeriesMenu" hidden>
+            <label><input type="checkbox" data-series="call" checked> Calls</label>
+            <label><input type="checkbox" data-series="put" checked> Puts</label>
+            <label><input type="checkbox" data-series="iv" checked> IV</label>
+          </div>
+        </div>
+        <span id="skewTicker" class="skew-readout">QQQ</span>
+      </div>
+    </div>
+    <div class="body skew-wrap">
+      <div id="skew" style="height:100%;"></div>
+      <div class="skew-mini-legend" aria-hidden="true">
+        <span class="sample calls"></span><span>calls</span>
+        <span class="sample puts"></span><span>puts</span>
+        <span class="sample iv"></span><span>iv</span>
+      </div>
+      <div id="skewTooltip" class="skew-tooltip"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><span class="dot"></span>OI × IV by Strike<input type="date" class="panel-date-picker" id="oiIvDate"></div>
+    <div class="body"><div id="oiiv" style="height:360px;"></div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><span class="dot put-color"></span>OI by Strike<input type="date" class="panel-date-picker" id="oiDate"></div>
+    <div class="body"><div id="oi" style="height:360px;"></div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <span class="dot"></span>Exposure
+      <div class="exposure-tabs" data-panel="gex">
+        <button type="button" class="exposure-tab" data-metric="net_gex">GEX</button>
+        <button type="button" class="exposure-tab" data-metric="net_dex">DEX</button>
+        <button type="button" class="exposure-tab" data-metric="net_vex">VEX</button>
+        <button type="button" class="exposure-tab" data-metric="net_chex">CHEX</button>
+      </div>
+      <input type="date" class="panel-date-picker" id="exposureGexDate">
+    </div>
+    <div class="body">
+      <div id="gex" style="height:500px;"></div>
+      <div id="gexDealerBalance" class="dealer-balance"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <span class="dot put-color"></span>Exposure
+      <div class="exposure-tabs" data-panel="dex">
+        <button type="button" class="exposure-tab" data-metric="net_gex">GEX</button>
+        <button type="button" class="exposure-tab" data-metric="net_dex">DEX</button>
+        <button type="button" class="exposure-tab" data-metric="net_vex">VEX</button>
+        <button type="button" class="exposure-tab" data-metric="net_chex">CHEX</button>
+      </div>
+      <input type="date" class="panel-date-picker" id="exposureDexDate">
+    </div>
+    <div class="body">
+      <div id="dex" style="height:500px;"></div>
+      <div id="dexDealerBalance" class="dealer-balance"></div>
+    </div>
+  </div>
+  <div class="panel wide">
+    <div class="panel-header">
+      <span class="dot"></span>Heat Tracker
+      <span class="panel-subtitle">Intraday exposure by strike x time, with spot path overlay</span>
+      <div class="heat-controls">
+        <select id="heatTicker">
+          <option value="QQQ">QQQ</option>
+          <option value="NDX">NDX</option>
+        </select>
+        <select id="heatMetric">
+          <option value="net_gex">GEX</option>
+          <option value="net_dex">DEX</option>
+          <option value="net_vex">VEX</option>
+          <option value="net_chex">CHEX</option>
+        </select>
+        <select id="heatInterval">
+          <option value="1">1m</option>
+          <option value="5">5m</option>
+          <option value="15">15m</option>
+          <option value="30">30m</option>
+        </select>
+        <button id="heatModeToggle" type="button">Blocks</button>
+        <button id="heatSpotToggle" type="button">Spot Line</button>
+        <span>Intensity</span>
+        <input id="heatIntensity" type="range" min="0" max="100" value="35">
+        <button id="heatResetZoom" type="button">Reset zoom</button>
+      </div>
+      <input type="date" class="panel-date-picker" id="heatDate">
+    </div>
+    <div class="body" id="gexribbonWrap" style="height:440px; position:relative; padding:0;">
+      <canvas id="gexribbonCanvas" style="width:100%; height:100%; display:block;"></canvas>
+      <div id="gexribbonTooltip" class="heat-tooltip" style="display:none;"></div>
+    </div>
+  </div>
+  <div class="panel wide">
+    <div class="panel-header">
+      <span class="dot" style="background:#FACC15"></span>Levels Export
+      <input type="date" class="panel-date-picker" id="levelsDate">
+    </div>
+    <div class="body levels-body">
+      <div class="levels-row">
+        <div class="levels-row-header">
+          <span class="levels-tag" id="levelsTag">LIVE</span>
+          <button type="button" id="levelsCopyBtn">Copy</button>
+        </div>
+        <pre class="export-line" id="levelsExport">$QQQ: loading...</pre>
+      </div>
+      <div class="levels-row">
+        <div class="levels-row-header">
+          <span class="levels-tag" id="levelsTagB">LIVE</span>
+          <button type="button" id="levelsCopyBtnB">Copy</button>
+        </div>
+        <pre class="export-line" id="levelsExportB">$NDX: loading...</pre>
+      </div>
+    </div>
+  </div>
+</div>
+<script type="module" src="/assets/app.js"></script>
+</body>
+</html>

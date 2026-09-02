@@ -45,11 +45,17 @@ def import_yfinance():
 
 
 def get_spot(ticker_obj) -> float:
-    """Live spot price, aware of pre/post-market state.
+    """Live spot price, aware of pre-market state.
 
-    Outside regular hours, `regularMarketPrice`/history close/fast_info.last_price
-    all still reflect the previous regular session's price, not the live pre/post
-    market tape. Yahoo exposes the live pre/post price separately via `info`.
+    Before the open, `regularMarketPrice`/history close/fast_info.last_price
+    all still reflect the previous session's close, not the live pre-market
+    tape, so pre-market uses Yahoo's dedicated `preMarketPrice` field.
+
+    After the close, `postMarketPrice` is intentionally NOT preferred: it is a
+    thin, low-volume tape that can wander noticeably from the official close
+    (observed ~1% drift), which would make EOD-labeled snapshots inconsistent
+    depending on exactly when they were polled. `regularMarketPrice` (the
+    official close) is used instead and stays stable for the rest of the day.
     """
     try:
         info = ticker_obj.info
@@ -59,8 +65,6 @@ def get_spot(ticker_obj) -> float:
     market_state = info.get("marketState")
     if market_state == "PRE" and info.get("preMarketPrice"):
         return float(info["preMarketPrice"])
-    if market_state == "POST" and info.get("postMarketPrice"):
-        return float(info["postMarketPrice"])
     if info.get("regularMarketPrice"):
         return float(info["regularMarketPrice"])
 

@@ -2,9 +2,9 @@ name: EOD QQQ GEX Dashboard
 
 on:
   schedule:
-    # 03:05 Vietnam time (next day) = 20:05 UTC.
-    # During US daylight saving time this is 16:05 New York, five minutes after close.
-    - cron: "5 20 * * 1-5"
+    # 03:23 Vietnam time (next day) = 20:23 UTC.
+    # During US daylight saving time this is 16:23 New York, after the EOD chain settles more.
+    - cron: "23 20 * * 1-5"
   workflow_dispatch:
     inputs:
       ticker:
@@ -46,6 +46,11 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-options.txt
 
+      - name: Capture QQQ multi-expiry skew
+        id: skew_qqq
+        continue-on-error: true
+        run: python scripts/run_gex_dashboard.py --ticker "$TICKER" --all-expiries --expiry-horizon-days 10 --no-interactive --no-open
+
       - name: Build QQQ dashboard
         id: build_qqq
         continue-on-error: true
@@ -70,7 +75,7 @@ jobs:
         if: steps.build_ndx.outcome == 'success'
         run: python scripts/update_history.py --ticker NDX
 
-      - name: Commit lightweight history
+      - name: Commit EOD history
         if: always()
         run: |
           git config user.name "github-actions[bot]"
@@ -78,7 +83,10 @@ jobs:
           for f in history/snapshots.csv history/latest_summary.json history/latest_summary_NDX.json; do
             [ -f "$f" ] && git add "$f"
           done
-          git diff --cached --quiet || { git commit -m "Update QQQ/NDX dashboard history (EOD)"; git push; }
+          for d in data/options data/market; do
+            [ -d "$d" ] && git add "$d"
+          done
+          git diff --cached --quiet || { git commit -m "Update QQQ/NDX EOD option history"; git push; }
 
       - name: Prepare GitHub Pages site
         if: steps.build_qqq.outcome == 'success'

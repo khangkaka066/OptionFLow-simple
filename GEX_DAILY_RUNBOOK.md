@@ -201,7 +201,70 @@ python3 scripts/daily_qqq_snapshot.py \
   --output-root data/options/recomputed
 ```
 
-## 7. Nên Lấy Data Lúc Mấy Giờ Cho 9:30 Open?
+## 7. Cách Kết Hợp Volatility Flow, Flow Tracker Và Heat Tracker
+
+Mục tiêu: không đọc riêng từng panel. Luôn đọc theo thứ tự:
+
+1. `Heat Tracker`: spot đang ở đâu so với Call Resistance, Put Support, Gamma/Vanna wall, và vùng GEX dày.
+2. `Flow Tracker`: dòng lệnh option đang tạo pressure bullish hay bearish.
+3. `Volatility Flow`: IV/ARV đang ủng hộ breakout, reversal, hay chỉ là noise.
+4. So với nến spot: flow có được spot xác nhận không.
+
+### Flow Tracker
+
+Trong tooltip `Premium $`, phần quan trọng nhất là `DIRECTIONAL FLOW (est.)`:
+
+- `Call pressure +`: bullish pressure, thường là call buying hoặc call-side demand.
+- `Call pressure -`: bearish pressure, call bị bán/thoát.
+- `Put pressure -`: bearish pressure, thường là put buying.
+- `Put pressure +`: bullish pressure, thường là put selling/covering.
+- `Net pressure + BULLISH`: tổng pressure nghiêng tăng.
+- `Net pressure - BEARISH`: tổng pressure nghiêng giảm.
+
+Đọc nhanh:
+
+- `Call pressure +` và `Put pressure +` -> bullish sạch.
+- `Call pressure -` và `Put pressure -` -> bearish sạch.
+- Một bên dương, một bên âm -> mixed; xem `Net pressure` bên nào lớn hơn.
+- Flow bullish nhưng nến spot đóng đỏ -> bullish flow bị hấp thụ, chưa long confirmation; nếu nến sau thủng low thì dễ là bull trap.
+- Flow bearish nhưng nến spot đóng xanh/giữ đáy -> bearish flow bị hấp thụ; nếu nến sau vượt high thì dễ là bear trap.
+
+### Volatility Flow
+
+Đọc IV/ARV để biết môi trường:
+
+- IV tăng, ARV tăng, spot break theo hướng flow -> breakout/trend có xác suất tốt hơn.
+- IV tăng nhưng ARV không tăng, spot không đi theo -> dễ là premium chase/noise.
+- ARV tăng trong lúc spot đi ngược flow -> absorption mạnh, cẩn thận trap.
+- IV cao hơn ARV nhiều -> premium đang đắt; tốt cho xác nhận risk, không nên chỉ vì flow mà đuổi giá.
+- ARV cao hơn hoặc đuổi sát IV -> biến động thực đang thật hơn, breakout/reversal quanh wall có thể mạnh.
+
+### Heat Tracker
+
+Heat Tracker dùng để chọn vùng phản ứng, không dùng một mình để đo hướng:
+
+- Spot chạm Put Support / vùng GEX dày phía dưới + Flow Tracker bullish + nến giữ đáy -> ưu tiên long/reversal.
+- Spot chạm Call Resistance / wall phía trên + Flow Tracker bearish + nến bị từ chối -> ưu tiên short/reversal.
+- Spot phá wall và giữ được ngoài wall + Flow Tracker cùng hướng + IV/ARV cùng tăng -> ưu tiên trend-follow.
+- Spot chạm wall nhưng flow ngược hướng và nến không xác nhận -> đứng ngoài, dễ trap.
+
+### Checklist Ra Quyết Định Intraday
+
+1. Spot đang ở gần wall nào trên `Heat Tracker`?
+2. `Net pressure` trên `Flow Tracker` là bullish hay bearish?
+3. Call pressure và Put pressure có cùng chiều không, hay mixed?
+4. Nến spot có xác nhận flow không?
+5. IV/ARV có đang tăng cùng hướng breakout/reversal không?
+6. Nếu flow và spot mâu thuẫn, ưu tiên đứng ngoài chờ nến sau xác nhận.
+
+Quy tắc gọn:
+
+- Flow cùng hướng với spot -> có thể follow.
+- Flow ngược spot -> coi là absorption/trap warning.
+- Flow mạnh nhưng spot không chạy -> không đuổi; chờ break high/low của nến vừa đóng.
+- Spot ở giữa range, xa wall -> giảm size hoặc bỏ qua, vì location kém.
+
+## 8. Nên Lấy Data Lúc Mấy Giờ Cho 9:30 Open?
 
 Mục tiêu của bạn là dự đoán hoặc chuẩn bị cho market open `09:30 New York time`.
 
@@ -282,7 +345,7 @@ Khi Mỹ dùng giờ mùa đông EST:
 09:30 New York          = 21:30 Việt Nam
 ```
 
-## 8. Workflow Mỗi Ngày Đề Xuất
+## 9. Workflow Mỗi Ngày Đề Xuất
 
 ### Trước Open
 
@@ -306,7 +369,7 @@ python3 scripts/run_gex_dashboard.py --ticker QQQ
 python3 scripts/replay.py --ticker QQQ --expiry 2026-08-17
 ```
 
-## 9. Diễn Giải Nhanh
+## 10. Diễn Giải Nhanh
 
 - `Call Resistance`: strike phía trên spot có call GEX lớn.
 - `Put Support`: strike phía dưới spot có put GEX âm lớn.
@@ -318,7 +381,7 @@ python3 scripts/replay.py --ticker QQQ --expiry 2026-08-17
 
 Đây là approximation cá nhân từ dữ liệu CBOE delayed + Yahoo, đã cross-check giữa hai nguồn nhưng vẫn không phải dealer positioning thật.
 
-## 10. Chạy Tự Động Bằng GitHub Actions
+## 11. Chạy Tự Động Bằng GitHub Actions
 
 Repo có sẵn workflow:
 
@@ -357,7 +420,7 @@ git push -u origin main
 
 Sau khi push xong, vào GitHub repo → tab **Actions** → bật workflow nếu GitHub hỏi xác nhận. Bạn cũng có thể bấm **Run workflow** để chạy thủ công ngay, không cần chờ tới 20:25.
 
-## 11. Lưu Hiện Tại + Lịch Sử Gọn
+## 12. Lưu Hiện Tại + Lịch Sử Gọn
 
 Workflow GitHub Pages chỉ deploy bộ file nhẹ:
 
@@ -375,7 +438,7 @@ Workflow không còn copy toàn bộ `data/options/` lên Pages nữa. Raw JSON,
 
 Artifact GitHub Actions cũng chỉ giữ bản nhẹ trong 1 ngày để tránh đầy dung lượng.
 
-## 12. Lấy Volatility Flow Mỗi 1 Phút Trên Máy Local
+## 13. Lấy Volatility Flow Mỗi 1 Phút Trên Máy Local
 
 Nếu muốn có `Volatility Flow` dày hơn GitHub cron, chạy lệnh này lúc khoảng `20:25` giờ Việt Nam:
 
