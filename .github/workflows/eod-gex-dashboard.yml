@@ -83,9 +83,6 @@ jobs:
           for f in history/snapshots.csv history/latest_summary.json history/latest_summary_NDX.json; do
             [ -f "$f" ] && git add "$f"
           done
-          for d in data/options data/market; do
-            [ -d "$d" ] && git add "$d"
-          done
           git diff --cached --quiet || { git commit -m "Update QQQ/NDX EOD option history"; git push; }
 
       - name: Prepare GitHub Pages site
