@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
-from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
+from .cache import ResponseCache
+from .intraday_service import IntradayService
+from .snapshot_service import SnapshotService
 from .web_assets import read_index_html, resolve_asset_path
 
 
@@ -14,10 +17,13 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     state = None
     ticker: str = "QQQ"
     window: float = 14.0
-    list_trading_days: Callable[[str], list[dict]] | None = None
-    load_snapshot_state: Callable[[str, str, float], dict] | None = None
-    load_intraday_state: Callable[[str, str, float], dict] | None = None
-    apply_secondary_basis: Callable[[dict, str], None] | None = None
+    snapshot_service: SnapshotService | None = None
+    intraday_service: IntradayService | None = None
+    apply_secondary_basis = None
+    response_cache = ResponseCache(max_entries=64)
+    history_cache_ttl_seconds: float = 120.0
+    snapshot_cache_ttl_seconds: float = 120.0
+    intraday_cache_ttl_seconds: float = 45.0
 
     def log_message(self, fmt: str, *args) -> None:
         return
@@ -31,34 +37,124 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self.send_static_asset(parsed.path)
             return
         if parsed.path == "/api/state":
-            self.send(json.dumps(self.state.snapshot(), default=str, allow_nan=False), "application/json")
+            self.send_json_payload(self.state.snapshot())
             return
         if parsed.path == "/api/history":
+            started = time.perf_counter()
             ticker = parse_qs(parsed.query).get("ticker", [self.ticker])[0] or self.ticker
-            payload = {"snapshots": self.list_trading_days(ticker)}
-            self.send(json.dumps(payload, default=str, allow_nan=False), "application/json")
+            cache_key = ("history", ticker.upper())
+            cached = self.response_cache.get(cache_key, self.history_cache_ttl_seconds)
+            cache_status = "hit" if cached is not None else "miss"
+            if cached is None:
+                cached = self.json_bytes({"snapshots": self.snapshot_service.list_trading_days(ticker)})
+                self.response_cache.set(cache_key, cached)
+            self.send_bytes(cached, "application/json")
+            self.log_api_timing("history", started=started, ticker=ticker, cache=cache_status, size=len(cached))
             return
         if parsed.path == "/api/snapshot":
-            ticker = parse_qs(parsed.query).get("ticker", [self.ticker])[0] or self.ticker
-            snapshot_id = parse_qs(parsed.query).get("id", [""])[0]
+            started = time.perf_counter()
+            query = parse_qs(parsed.query)
+            ticker = query.get("ticker", [self.ticker])[0] or self.ticker
+            snapshot_id = query.get("id", [""])[0]
+            refresh = query.get("refresh", ["0"])[0] == "1"
+            cache_key = (
+                ticker.upper(),
+                snapshot_id,
+                float(self.window),
+                self.secondary_basis_cache_key(),
+            )
+            cached = None if refresh else self.response_cache.get(cache_key, self.snapshot_cache_ttl_seconds)
+            cache_status = "refresh" if refresh else ("hit" if cached is not None else "miss")
             try:
-                payload = self.load_snapshot_state(snapshot_id, ticker, self.window)
-                if self.apply_secondary_basis:
-                    self.apply_secondary_basis(payload, ticker)
-                self.send(json.dumps(payload, default=str, allow_nan=False), "application/json")
+                if cached is None:
+                    payload = self.snapshot_service.load_snapshot_state(snapshot_id, ticker, self.window, refresh=refresh)
+                    if self.apply_secondary_basis:
+                        self.apply_secondary_basis(payload, ticker)
+                    cached = self.json_bytes(payload)
+                    self.response_cache.set(cache_key, cached)
+                self.send_bytes(cached, "application/json")
+                self.log_api_timing(
+                    "snapshot",
+                    started=started,
+                    ticker=ticker,
+                    snapshot_id=snapshot_id,
+                    cache=cache_status,
+                    size=len(cached),
+                )
             except Exception as exc:
-                self.send(json.dumps({"error": str(exc)}), "application/json", HTTPStatus.BAD_REQUEST)
+                self.response_cache.delete(cache_key)
+                error = json.dumps({"error": str(exc)}).encode("utf-8")
+                self.send_bytes(error, "application/json", HTTPStatus.BAD_REQUEST)
+                self.log_api_timing(
+                    "snapshot",
+                    started=started,
+                    ticker=ticker,
+                    snapshot_id=snapshot_id,
+                    cache="error",
+                    size=len(error),
+                )
             return
         if parsed.path == "/api/intraday":
-            ticker = parse_qs(parsed.query).get("ticker", [self.ticker])[0] or self.ticker
-            trading_date = parse_qs(parsed.query).get("date", [""])[0]
+            started = time.perf_counter()
+            query = parse_qs(parsed.query)
+            ticker = query.get("ticker", [self.ticker])[0] or self.ticker
+            trading_date = query.get("date", [""])[0]
+            refresh = query.get("refresh", ["0"])[0] == "1"
+            cache_key = (
+                ticker.upper(),
+                trading_date,
+                float(self.window),
+                self.secondary_basis_cache_key(),
+            )
+            cached = None if refresh else self.response_cache.get(cache_key, self.intraday_cache_ttl_seconds)
+            cache_status = "refresh" if refresh else ("hit" if cached is not None else "miss")
             try:
-                payload = self.load_intraday_state(trading_date, ticker, self.window)
-                self.send(json.dumps(payload, default=str, allow_nan=False), "application/json")
+                if cached is None:
+                    payload = self.intraday_service.load_state(trading_date, ticker, self.window, refresh=refresh)
+                    if self.apply_secondary_basis:
+                        self.apply_secondary_basis(payload, ticker)
+                    cached = self.json_bytes(payload)
+                    self.response_cache.set(cache_key, cached)
+                self.send_bytes(cached, "application/json")
+                self.log_api_timing(
+                    "intraday",
+                    started=started,
+                    ticker=ticker,
+                    trading_date=trading_date,
+                    cache=cache_status,
+                    size=len(cached),
+                )
             except Exception as exc:
-                self.send(json.dumps({"error": str(exc)}), "application/json", HTTPStatus.BAD_REQUEST)
+                self.response_cache.delete(cache_key)
+                error = json.dumps({"error": str(exc)}).encode("utf-8")
+                self.send_bytes(error, "application/json", HTTPStatus.BAD_REQUEST)
+                self.log_api_timing(
+                    "intraday",
+                    started=started,
+                    ticker=ticker,
+                    trading_date=trading_date,
+                    cache="error",
+                    size=len(error),
+                )
             return
         self.send("not found", "text/plain", HTTPStatus.NOT_FOUND)
+
+
+    def log_api_timing(self, endpoint: str, *, started: float, size: int = 0, **fields) -> None:
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        parts = [f"{key}={value}" for key, value in fields.items() if value not in (None, "")]
+        parts.append(f"size={size}")
+        parts.append(f"ms={elapsed_ms:.1f}")
+        print(f"[perf] api.{endpoint} " + " ".join(parts), flush=True)
+
+    def json_bytes(self, payload: dict) -> bytes:
+        return json.dumps(payload, default=str, allow_nan=False).encode("utf-8")
+
+    def send_json_payload(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
+        self.send_bytes(self.json_bytes(payload), "application/json", status)
+
+    def secondary_basis_cache_key(self) -> str:
+        return str(getattr(self.state, "secondary_futures_ticker", "") or "")
 
     def send_static_asset(self, request_path: str) -> None:
         asset_path = resolve_asset_path(request_path)
@@ -85,10 +181,9 @@ def configure_handler(
     state,
     ticker: str,
     window: float,
-    list_trading_days: Callable[[str], list[dict]],
-    load_snapshot_state: Callable[[str, str, float], dict],
-    load_intraday_state: Callable[[str, str, float], dict],
-    apply_secondary_basis: Callable[[dict, str], None],
+    snapshot_service: SnapshotService,
+    intraday_service: IntradayService,
+    apply_secondary_basis,
 ) -> type[DashboardRequestHandler]:
     class ConfiguredDashboardRequestHandler(DashboardRequestHandler):
         pass
@@ -96,8 +191,8 @@ def configure_handler(
     ConfiguredDashboardRequestHandler.state = state
     ConfiguredDashboardRequestHandler.ticker = ticker
     ConfiguredDashboardRequestHandler.window = window
-    ConfiguredDashboardRequestHandler.list_trading_days = staticmethod(list_trading_days)
-    ConfiguredDashboardRequestHandler.load_snapshot_state = staticmethod(load_snapshot_state)
-    ConfiguredDashboardRequestHandler.load_intraday_state = staticmethod(load_intraday_state)
+    ConfiguredDashboardRequestHandler.snapshot_service = snapshot_service
+    ConfiguredDashboardRequestHandler.intraday_service = intraday_service
     ConfiguredDashboardRequestHandler.apply_secondary_basis = staticmethod(apply_secondary_basis)
+    ConfiguredDashboardRequestHandler.response_cache = ResponseCache(max_entries=64)
     return ConfiguredDashboardRequestHandler

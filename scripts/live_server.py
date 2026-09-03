@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import os
 import subprocess
 import sys
 import threading
@@ -18,16 +17,25 @@ import time
 from datetime import datetime, time as dt_time, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote
 
 import numpy as np
 import pandas as pd
-import requests
 from dotenv import load_dotenv
 
 from exposure import nearest_atm_iv
+from live_dashboard.data_store import DataStore
 from live_dashboard.http_server import configure_handler
+from live_dashboard.intraday_file_cache import IntradayFileCache
+from live_dashboard.intraday_service import IntradayService
+from live_dashboard.market_data import (
+    alpaca_candles_collector,
+    apply_futures_basis,
+    candles_for_session,
+    fetch_day_high_low,
+)
 from live_dashboard.serialization import clean_records, clean_value
+from live_dashboard.snapshot_file_cache import SnapshotFileCache
+from live_dashboard.snapshot_service import SnapshotService
 from live_dashboard.state import LiveState
 from live_dashboard.time_utils import (
     DEFAULT_COLLECT_START_OFFSET_MIN,
@@ -43,14 +51,14 @@ from sources import yahoo
 
 load_dotenv()
 
-ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY")
-ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY")
-ALPACA_DATA_URL = "https://data.alpaca.markets/v2/stocks/{symbol}/bars"
-
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_ROOT = Path(__file__).resolve().parent
+RUN_DASHBOARD_SCRIPT = SCRIPT_ROOT / "run_gex_dashboard.py"
 DATA_ROOT = PROJECT_ROOT / "data" / "options"
+DATA_STORE = DataStore(DATA_ROOT, ny_tz=NY_TZ, vn_tz=VN_TZ)
 IV_RANK_HISTORY_PATH = DATA_ROOT / "iv_rank_history.csv"
+INTRADAY_CACHE_ROOT = PROJECT_ROOT / "data" / "cache" / "intraday"
+SNAPSHOT_CACHE_ROOT = PROJECT_ROOT / "data" / "cache" / "snapshot"
 
 
 def skew_tenors_payload(ticker: str, spot: float, effective_day: str) -> list[dict]:
@@ -269,78 +277,35 @@ def pull_github_updates_on_startup(enabled: bool = True) -> None:
 
 
 def latest_summary_path(ticker: str) -> Path:
-    matches = [
-        path
-        for path in DATA_ROOT.glob(f"*/{ticker.upper()}_*_summary.json")
-        if len(path.stem.split("_")) == 3
-    ]
-    if not matches:
-        raise FileNotFoundError(f"No latest summary found for {ticker}")
-    return max(matches, key=lambda path: path.stat().st_mtime)
+    return DATA_STORE.latest_summary_path(ticker)
 
 
 def history_summary_paths(ticker: str) -> list[Path]:
-    return sorted(DATA_ROOT.glob(f"*/history/{ticker.upper()}_*_snapshots.parquet"))
+    return DATA_STORE.history_summary_paths(ticker)
 
 
 def parse_history_json(value):
-    if not isinstance(value, str):
-        return value
-    text = value.strip()
-    if not text or text[0] not in "[{":
-        return value
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return value
+    return DATA_STORE.parse_history_json(value)
 
 
 def summary_from_history_row(row: dict) -> dict:
-    return {key: clean_value(parse_history_json(value)) for key, value in row.items() if not key.startswith("recon_")}
+    return DATA_STORE.summary_from_history_row(row)
 
 
 def history_by_strike_path(summary_history_path: Path) -> Path:
-    return summary_history_path.with_name(summary_history_path.name.replace("_snapshots.parquet", "_by_strike_history.parquet"))
+    return DATA_STORE.history_by_strike_path(summary_history_path)
 
 
 def history_snapshot_id(summary_history_path: Path, snapshot_utc: str) -> str:
-    return "history:" + summary_history_path.relative_to(DATA_ROOT).as_posix() + "#" + quote(snapshot_utc, safe="")
+    return DATA_STORE.history_snapshot_id(summary_history_path, snapshot_utc)
 
 
 def parse_history_snapshot_id(snapshot_id: str) -> tuple[Path, str]:
-    payload = snapshot_id.removeprefix("history:")
-    rel_path, encoded_ts = payload.rsplit("#", 1)
-    candidate = (DATA_ROOT / unquote(rel_path)).resolve()
-    root = DATA_ROOT.resolve()
-    if root not in candidate.parents or candidate.suffix != ".parquet" or not candidate.name.endswith("_snapshots.parquet"):
-        raise ValueError("invalid history snapshot id")
-    if not candidate.exists():
-        raise FileNotFoundError("history snapshot not found")
-    return candidate, unquote(encoded_ts)
+    return DATA_STORE.parse_history_snapshot_id(snapshot_id)
 
 
 def latest_history_snapshot(ticker: str) -> tuple[Path, dict] | None:
-    best: tuple[pd.Timestamp, Path, dict] | None = None
-    for path in history_summary_paths(ticker):
-        try:
-            rows = pd.read_parquet(path)
-        except Exception:
-            continue
-        if rows.empty:
-            continue
-        rows = rows[rows["ticker"].astype(str).str.upper() == ticker.upper()]
-        if rows.empty:
-            continue
-        rows = rows.sort_values("snapshot_utc")
-        row = rows.iloc[-1].to_dict()
-        snapshot = pd.to_datetime(row.get("snapshot_utc"), errors="coerce", utc=True)
-        if pd.isna(snapshot):
-            continue
-        if best is None or snapshot > best[0]:
-            best = (snapshot, path, row)
-    if best is None:
-        return None
-    return best[1], summary_from_history_row(best[2])
+    return DATA_STORE.latest_history_snapshot(ticker)
 
 
 def volume_totals(rows: pd.DataFrame | list[dict]) -> tuple[float, float]:
@@ -702,177 +667,27 @@ def session_from_summary(summary: dict) -> dict:
 
 
 def snapshot_id_for_path(path: Path) -> str:
-    return path.relative_to(DATA_ROOT).as_posix()
+    return DATA_STORE.snapshot_id_for_path(path)
 
 
 def summary_path_from_id(snapshot_id: str) -> Path:
-    decoded = unquote(snapshot_id)
-    candidate = (DATA_ROOT / decoded).resolve()
-    root = DATA_ROOT.resolve()
-    if root not in candidate.parents or candidate.suffix != ".json" or not candidate.name.endswith("_summary.json"):
-        raise ValueError("invalid snapshot id")
-    if not candidate.exists():
-        raise FileNotFoundError("snapshot not found")
-    return candidate
+    return DATA_STORE.summary_path_from_id(snapshot_id)
 
 
 def snapshot_label(path: Path, summary: dict) -> str:
-    expiry = summary.get("expiry") or path.stem.split("_")[1]
-    snapshot = pd.to_datetime(summary.get("snapshot_utc"), errors="coerce", utc=True)
-    if pd.notna(snapshot):
-        label_time = snapshot.tz_convert(VN_TZ).strftime("%Y-%m-%d %H:%M VN")
-    else:
-        label_time = path.parent.name
-    label_type = "Daily" if len(path.stem.split("_")) == 3 else "Snapshot"
-    return f"{label_type} · {label_time} · {expiry}"
+    return DATA_STORE.snapshot_label(path, summary)
 
 
 def list_history_choices(ticker: str) -> list[dict]:
-    choices = []
-    seen_ids: set[str] = set()
-    seen_keys: set[tuple[str, str]] = set()
-    for path in history_summary_paths(ticker):
-        try:
-            rows = pd.read_parquet(path)
-        except Exception:
-            continue
-        for row in rows.sort_values("snapshot_utc", ascending=False).to_dict(orient="records"):
-            summary = summary_from_history_row(row)
-            snapshot_utc = summary.get("snapshot_utc")
-            if not snapshot_utc:
-                continue
-            item_id = history_snapshot_id(path, snapshot_utc)
-            if item_id in seen_ids:
-                continue
-            key = (str(snapshot_utc), str(summary.get("expiry") or ""))
-            if key in seen_keys:
-                continue
-            seen_ids.add(item_id)
-            seen_keys.add(key)
-            choices.append(
-                {
-                    "id": item_id,
-                    "label": "Snapshot · "
-                    + (
-                        pd.to_datetime(snapshot_utc, errors="coerce", utc=True)
-                        .tz_convert(VN_TZ)
-                        .strftime("%Y-%m-%d %H:%M VN")
-                        if pd.notna(pd.to_datetime(snapshot_utc, errors="coerce", utc=True))
-                        else str(snapshot_utc)
-                    )
-                    + " · "
-                    + str(summary.get("expiry") or ""),
-                    "snapshot_utc": snapshot_utc,
-                    "expiry": summary.get("expiry"),
-                }
-            )
-    for path in sorted(DATA_ROOT.glob(f"*/{ticker.upper()}_*_summary.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            summary = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        item_id = snapshot_id_for_path(path)
-        if item_id in seen_ids:
-            continue
-        key = (str(summary.get("snapshot_utc") or ""), str(summary.get("expiry") or ""))
-        if key in seen_keys:
-            continue
-        seen_ids.add(item_id)
-        seen_keys.add(key)
-        choices.append(
-            {
-                "id": item_id,
-                "label": snapshot_label(path, summary),
-                "snapshot_utc": summary.get("snapshot_utc"),
-                "expiry": summary.get("expiry"),
-            }
-        )
-    return sorted(choices, key=lambda item: item.get("snapshot_utc") or "", reverse=True)[:2000]
+    return DATA_STORE.list_history_choices(ticker)
 
 
 def list_trading_days(ticker: str) -> list[dict]:
-    days: dict[str, dict] = {}
-    for path in history_summary_paths(ticker):
-        try:
-            rows = pd.read_parquet(path)
-        except Exception:
-            continue
-        if rows.empty or "snapshot_utc" not in rows:
-            continue
-        rows = rows[rows["ticker"].astype(str).str.upper() == ticker.upper()].copy()
-        rows["_snapshot_ts"] = pd.to_datetime(rows["snapshot_utc"], errors="coerce", utc=True)
-        rows = rows[rows["_snapshot_ts"].notna()].sort_values("snapshot_utc")
-        for trading_day, group in rows.groupby(rows["_snapshot_ts"].dt.tz_convert(NY_TZ).dt.date.astype(str)):
-            if group.empty:
-                continue
-            latest = group.iloc[-1].to_dict()
-            current = days.get(trading_day)
-            if current is None:
-                days[trading_day] = {
-                    "id": "day:" + trading_day,
-                    "label": trading_day,
-                    "trading_date": trading_day,
-                    "snapshot_count": 0,
-                    "latest_snapshot_utc": latest.get("snapshot_utc"),
-                    "latest_snapshot_id": history_snapshot_id(path, str(latest.get("snapshot_utc"))),
-                    "expiry": latest.get("expiry"),
-                    "expiries": set(),
-                }
-                current = days[trading_day]
-            current["snapshot_count"] += int(group["snapshot_utc"].nunique())
-            for expiry in group.get("expiry", pd.Series(dtype=object)).dropna().astype(str).unique():
-                current["expiries"].add(expiry)
-            if str(latest.get("snapshot_utc") or "") > str(current.get("latest_snapshot_utc") or ""):
-                current["latest_snapshot_utc"] = latest.get("snapshot_utc")
-                current["latest_snapshot_id"] = history_snapshot_id(path, str(latest.get("snapshot_utc")))
-                current["expiry"] = latest.get("expiry")
-    for day_dir in sorted(path for path in DATA_ROOT.iterdir() if path.is_dir()):
-        if day_dir.name in days:
-            continue
-        candidates = []
-        for path in sorted(day_dir.glob(f"{ticker.upper()}_*_summary.json"), key=lambda p: p.stat().st_mtime):
-            try:
-                summary = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            snapshot = pd.to_datetime(summary.get("snapshot_utc"), errors="coerce", utc=True)
-            if pd.isna(snapshot):
-                continue
-            candidates.append((snapshot, path, summary))
-        if not candidates:
-            continue
-        snapshot, path, summary = max(candidates, key=lambda item: item[0])
-        trading_day = snapshot.tz_convert(NY_TZ).date().isoformat()
-        if trading_day in days:
-            continue
-        expiry = summary.get("expiry")
-        days[trading_day] = {
-            "id": "day:" + trading_day,
-            "label": trading_day,
-            "trading_date": trading_day,
-            "snapshot_count": len(candidates),
-            "latest_snapshot_utc": summary.get("snapshot_utc"),
-            "latest_snapshot_id": snapshot_id_for_path(path),
-            "expiry": expiry,
-            "expiries": {str(expiry)} if expiry else set(),
-        }
-    out = []
-    for day in days.values():
-        expiries = sorted(day.pop("expiries"))
-        expiry_label = ", ".join(expiries[:2]) + ("..." if len(expiries) > 2 else "")
-        day["label"] = f"{day['trading_date']} · {day['snapshot_count']} mốc"
-        if expiry_label:
-            day["label"] += f" · {expiry_label}"
-        out.append(day)
-    return sorted(out, key=lambda item: item["trading_date"], reverse=True)
+    return DATA_STORE.list_trading_days(ticker)
 
 
 def latest_snapshot_id_for_trading_day(day_id: str, ticker: str) -> str:
-    trading_day = day_id.removeprefix("day:")
-    for item in list_trading_days(ticker):
-        if item.get("trading_date") == trading_day and item.get("latest_snapshot_id"):
-            return str(item["latest_snapshot_id"])
-    raise FileNotFoundError(f"No snapshots found for trading day {trading_day}")
+    return DATA_STORE.latest_snapshot_id_for_trading_day(day_id, ticker)
 
 
 def rows_for_history_snapshot(
@@ -1203,129 +1018,13 @@ def day_series_from_history(summary_history_path: Path, selected_summary: dict, 
     return points, ribbon
 
 
-def candles_for_session(ticker: str, session: dict) -> tuple[list[dict], str | None]:
-    if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
-        return [], "Alpaca API key not configured"
-    try:
-        return fetch_alpaca_bars(
-            ticker,
-            session["market_open_utc"],
-            end_iso=session.get("market_close_utc"),
-        ), None
-    except Exception as exc:
-        return [], str(exc)
-
-
-def load_snapshot_state(snapshot_id: str, ticker: str, window: float) -> dict:
-    if snapshot_id.startswith("day:"):
-        snapshot_id = latest_snapshot_id_for_trading_day(snapshot_id, ticker)
-    if snapshot_id.startswith("history:"):
-        summary_history_path, snapshot_utc = parse_history_snapshot_id(snapshot_id)
-        summary, point, rows, history, gex_snapshot = chart_payload_from_history(summary_history_path, snapshot_utc, ticker, window)
-        history = [row for row in history if str(row.get("snapshot_utc") or "") <= str(summary.get("snapshot_utc") or "")]
-        points, ribbon = day_series_from_history(summary_history_path, summary, ticker, window)
-        replay_snapshots = replay_snapshots_from_history(summary_history_path, summary, ticker)
-        points, ribbon = filter_replay_series(points, ribbon, session_from_summary(summary), summary["snapshot_utc"])
-        if not points:
-            points = [point]
-        if not ribbon:
-            ribbon = [gex_snapshot]
-        snapshot_vn = pd.to_datetime(summary.get("snapshot_utc"), errors="coerce", utc=True)
-        if pd.notna(snapshot_vn):
-            summary["snapshot_vn"] = snapshot_vn.tz_convert(VN_TZ).isoformat()
-        session = session_from_summary(summary)
-        candles, candles_error = candles_for_session(ticker, session)
-        return {
-            "points": points,
-            "gex_ribbon": ribbon,
-            "history": history,
-            "by_strike": rows,
-            "skew_by_strike": rows,
-            "skew_summary": summary,
-            "skew_tenors": skew_tenors_payload_for_summary(ticker, summary),
-            "latest_summary": summary,
-            "levels_summary": summary,
-            "latest_error": None,
-            "running": False,
-            "successes": 0,
-            "failures": 0,
-            "next_fetch": None,
-            "session": session,
-            "candles": candles,
-            "candles_error": candles_error,
-            "history_snapshot_id": snapshot_id,
-            "replay_snapshots": replay_snapshots,
-        }
-    summary_path = summary_path_from_id(snapshot_id)
-    summary, point, rows, history, gex_snapshot = chart_payload_from_summary_path(summary_path, ticker, window)
-    history = [row for row in history if str(row.get("snapshot_utc") or "") <= str(summary.get("snapshot_utc") or "")]
-    points, ribbon = day_series_from_summary_path(summary_path, ticker, window)
-    replay_snapshots = replay_snapshots_from_summary_path(summary_path, ticker)
-    points, ribbon = filter_replay_series(points, ribbon, session_from_summary(summary), summary["snapshot_utc"])
-    if not points:
-        points = [point]
-    if not ribbon:
-        ribbon = [gex_snapshot]
-    snapshot_vn = pd.to_datetime(summary.get("snapshot_utc"), errors="coerce", utc=True)
-    if pd.notna(snapshot_vn):
-        summary["snapshot_vn"] = snapshot_vn.tz_convert(VN_TZ).isoformat()
-    session = session_from_summary(summary)
-    candles, candles_error = candles_for_session(ticker, session)
-    return {
-        "points": points,
-        "gex_ribbon": ribbon,
-        "history": history,
-        "by_strike": rows,
-        "skew_by_strike": rows,
-        "skew_summary": summary,
-        "skew_tenors": skew_tenors_payload_for_summary(ticker, summary),
-        "latest_summary": summary,
-        "levels_summary": summary,
-        "latest_error": None,
-        "running": False,
-        "successes": 0,
-        "failures": 0,
-        "next_fetch": None,
-        "session": session,
-        "candles": candles,
-        "candles_error": candles_error,
-        "history_snapshot_id": snapshot_id,
-        "replay_snapshots": replay_snapshots,
-    }
-
-
-def load_intraday_state(trading_date: str, ticker: str, window: float) -> dict:
-    """Full intraday replay for live-only panels on a selected NY trading date.
-
-    `/api/snapshot?id=day:...` intentionally resolves to the latest snapshot of
-    that day for EOD-style panels. Heat Tracker needs the entire tape, so this
-    endpoint seeds from all snapshots inside the selected session window.
-    """
-    session = session_for_trading_date(trading_date)
-    points, ribbon = seed_session_data(ticker, session, window)
-    snapshot_id = latest_snapshot_id_for_trading_day("day:" + session["trading_date"], ticker)
-    payload = load_snapshot_state(snapshot_id, ticker, window)
-    payload["points"] = points or payload.get("points", [])
-    payload["gex_ribbon"] = ribbon or payload.get("gex_ribbon", [])
-    payload["session"] = session
-    candles, candles_error = candles_for_session(ticker, session)
-    payload["candles"] = candles
-    payload["candles_error"] = candles_error
-    payload["running"] = False
-    payload["next_fetch"] = None
-    return payload
-
 
 def load_latest(ticker: str, window: float) -> tuple[dict, dict, list[dict], list[dict], dict]:
-    latest_history = latest_history_snapshot(ticker)
-    if latest_history is not None:
-        summary_history_path, summary = latest_history
-        return chart_payload_from_history(summary_history_path, summary["snapshot_utc"], ticker, window)
-    return chart_payload_from_summary_path(latest_summary_path(ticker), ticker, window)
+    summary_path = latest_summary_path(ticker)
+    summary, point, rows, history, gex_snapshot = chart_payload_from_summary_path(summary_path, ticker, window)
+    return summary, point, rows, history, gex_snapshot
 
 
-# Multi-expiry Volatility Skew is heavier than the single-expiry flow pull.
-# With the default 60s interval, this refreshes skew roughly every 5 minutes.
 TENOR_REFRESH_EVERY_N_PULLS = 5
 TENOR_REFRESH_HORIZON_DAYS = 10
 
@@ -1333,25 +1032,29 @@ TENOR_REFRESH_HORIZON_DAYS = 10
 def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subprocess.CompletedProcess:
     cmd = [
         sys.executable,
-        "scripts/run_gex_dashboard.py",
+        str(RUN_DASHBOARD_SCRIPT),
         "--ticker",
-        args.ticker.upper(),
+        args.ticker,
+        "--window",
+        str(args.window),
         "--rate",
         str(args.rate),
         "--top",
         str(args.top),
-        "--window",
-        str(args.window),
+        "--output-root",
+        str(DATA_ROOT),
+        "--interactive-output",
+        str(PROJECT_ROOT / "dashboard.html"),
         "--no-open",
     ]
+    if args.expiry:
+        cmd += ["--expiry", args.expiry]
     if fetch_tenor:
         cmd += ["--all-expiries", "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS)]
-    elif args.expiry:
-        cmd += ["--expiry", args.expiry]
     return subprocess.run(cmd, cwd=PROJECT_ROOT, check=False, text=True, capture_output=True)
 
 
-def collector(args: argparse.Namespace, state: LiveState) -> None:
+def collector(args: argparse.Namespace, state: LiveState, snapshot_service: SnapshotService | None = None) -> None:
     deadline = None
     if args.duration_minutes is not None:
         deadline = time.monotonic() + max(0, args.duration_minutes) * 60
@@ -1393,12 +1096,6 @@ def collector(args: argparse.Namespace, state: LiveState) -> None:
                             if not any(r.get("time") == gex_snapshot.get("time") for r in state.gex_ribbon):
                                 state.gex_ribbon.append(gex_snapshot)
                     elif pd.notna(point_ts) and not state.session_locked:
-                        # First poll at/after 16:00 NY close: stop collecting
-                        # for the rest of the day, but keep the intraday tape
-                        # already built in memory. Heat Tracker, Volatility
-                        # Flow and Flow Tracker need the full session after
-                        # close; replacing it with the closing snapshot makes
-                        # those panels look empty/useless at EOD.
                         if not state.points:
                             state.points = [point]
                         if not state.gex_ribbon:
@@ -1409,28 +1106,13 @@ def collector(args: argparse.Namespace, state: LiveState) -> None:
                         and not state.session_locked
                         and pd.Timestamp.now(tz="UTC") >= market_close
                     ):
-                        # Yahoo has stopped returning any intraday bar at all
-                        # (post-market window over, no bar to time-check
-                        # against) but we are already past today's close: lock
-                        # the session anyway so the collector stops polling
-                        # CBOE/Yahoo every interval all night for nothing.
                         state.session_locked = True
-                    # Levels Export always shows the previous completed
-                    # trading day's actual EOD close (seeded once at startup
-                    # in main()), never today's live/recomputed chain. Only
-                    # 1D Min/Max refresh live on top of that frozen base.
                     if state.levels_summary is not None:
                         day_low, day_high = fetch_day_high_low(args.ticker)
                         if day_low is not None:
                             state.levels_summary["one_day_min"] = day_low
                         if day_high is not None:
                             state.levels_summary["one_day_max"] = day_high
-                    # DEX/GEX/VEX/CHEX, OI by Strike, OIxIV by Strike and IV
-                    # Rank must show true EOD data until 09:00 NY (Yahoo
-                    # returns a live premarket spot before then, which would
-                    # otherwise leak into a "frozen" snapshot). Skew has its
-                    # own, later, 09:30 NY cutoff and its own state fields so
-                    # it can go live independently of the exposure group.
                     market_open = pd.Timestamp(state.session["market_open_utc"])
                     if pd.notna(point_ts) and point_ts >= collect_start:
                         state.latest_summary = summary
@@ -1453,73 +1135,6 @@ def collector(args: argparse.Namespace, state: LiveState) -> None:
     with state.lock:
         state.running = False
         state.next_fetch = None
-
-
-def fetch_futures_spot_at(futures_ticker: str, snapshot_utc: str | None) -> float | None:
-    if not futures_ticker or not snapshot_utc:
-        return None
-    snapshot = pd.to_datetime(snapshot_utc, errors="coerce", utc=True)
-    if pd.isna(snapshot):
-        return None
-    try:
-        yf = yahoo.import_yfinance()
-        ticker_obj = yf.Ticker(yahoo._yahoo_symbol(futures_ticker))
-        bars = ticker_obj.history(
-            start=(snapshot - pd.Timedelta(minutes=45)).to_pydatetime(),
-            end=(snapshot + pd.Timedelta(minutes=45)).to_pydatetime(),
-            interval="1m",
-        )
-        if bars.empty or "Close" not in bars:
-            return None
-        bars = bars.copy()
-        bars["_ts"] = pd.to_datetime(bars.index, errors="coerce", utc=True)
-        bars = bars[bars["_ts"].notna()].sort_values("_ts")
-        if bars.empty:
-            return None
-        prior = bars[bars["_ts"] <= snapshot]
-        row = prior.iloc[-1] if not prior.empty else bars.iloc[0]
-        close = row.get("Close")
-        return float(close) if pd.notna(close) else None
-    except Exception:
-        return None
-
-
-def fetch_futures_basis(futures_ticker: str, cash_spot: float, snapshot_utc: str | None = None) -> float | None:
-    """Live futures price minus cash spot, for adjusting cash-index-derived
-    levels so they line up on a futures chart (e.g. NDX levels on NQ1!)."""
-    if not futures_ticker:
-        return None
-    try:
-        futures_spot = fetch_futures_spot_at(futures_ticker, snapshot_utc)
-        if futures_spot is None:
-            yf = yahoo.import_yfinance()
-            futures_spot = yahoo.get_spot(yf.Ticker(yahoo._yahoo_symbol(futures_ticker)))
-        return float(futures_spot) - float(cash_spot)
-    except Exception:
-        return None
-
-
-def apply_futures_basis(summary: dict | None, futures_ticker: str, tick_size: float | None = 0.25) -> dict | None:
-    if summary is None or not futures_ticker or summary.get("spot") is None:
-        return summary
-    basis = fetch_futures_basis(futures_ticker, summary["spot"], summary.get("snapshot_utc"))
-    if basis is not None:
-        summary["futures_basis"] = basis
-        summary["futures_ticker"] = futures_ticker
-        if tick_size is not None and tick_size > 0:
-            summary["futures_tick_size"] = tick_size
-    return summary
-
-
-def fetch_day_high_low(ticker: str) -> tuple[float | None, float | None]:
-    """Live 1D low/high so far from Yahoo Finance 1-minute bars, for the
-    Levels Export panel's "1D Min"/"1D Max" fields."""
-    try:
-        yf = yahoo.import_yfinance()
-        ticker_obj = yf.Ticker(yahoo._yahoo_symbol(ticker))
-        return yahoo.get_day_high_low(ticker_obj)
-    except Exception:
-        return None, None
 
 
 def levels_collector(
@@ -1557,65 +1172,6 @@ def levels_collector(
         next_run += base_args.interval_seconds
 
 
-def fetch_alpaca_bars(ticker: str, start_iso: str, timeframe: str = "1Min", end_iso: str | None = None) -> list[dict]:
-    params = {
-        "timeframe": timeframe,
-        "start": start_iso,
-        "limit": 1000,
-        "feed": "iex",
-        "adjustment": "raw",
-    }
-    if end_iso:
-        params["end"] = end_iso
-    resp = requests.get(
-        ALPACA_DATA_URL.format(symbol=ticker),
-        headers={
-            "APCA-API-KEY-ID": ALPACA_API_KEY,
-            "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
-        },
-        params=params,
-        timeout=10,
-    )
-    resp.raise_for_status()
-    bars = resp.json().get("bars") or []
-    return [
-        {
-            "t": bar["t"],
-            "o": float(bar["o"]),
-            "h": float(bar["h"]),
-            "l": float(bar["l"]),
-            "c": float(bar["c"]),
-            "v": float(bar["v"]),
-        }
-        for bar in bars
-    ]
-
-
-def alpaca_candles_collector(ticker: str, state: LiveState) -> None:
-    """Independent poller for the Alpaca candlestick panel. Never crashes the
-    process: missing credentials or a failed fetch just surface as
-    state.candles_error while the last good state.candles is kept."""
-    poll_seconds = 30
-    while True:
-        with state.lock:
-            if not state.running:
-                break
-        if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
-            with state.lock:
-                state.candles_error = "Alpaca API key not configured"
-            time.sleep(poll_seconds)
-            continue
-        try:
-            start_iso = market_session_utc()["market_open_utc"]
-            bars = fetch_alpaca_bars(ticker, start_iso)
-            with state.lock:
-                state.candles = bars
-                state.candles_error = None
-        except Exception as exc:
-            with state.lock:
-                state.candles_error = str(exc)
-        time.sleep(poll_seconds)
-
 
 def main() -> None:
     args = parse_args()
@@ -1644,6 +1200,36 @@ def main() -> None:
         )
         state.levels_locked_secondary = True
         apply_futures_basis(state.levels_summary_secondary, state.secondary_futures_ticker)
+    snapshot_service = SnapshotService(
+        list_trading_days=list_trading_days,
+        latest_snapshot_id_for_trading_day=latest_snapshot_id_for_trading_day,
+        parse_history_snapshot_id=parse_history_snapshot_id,
+        chart_payload_from_history=chart_payload_from_history,
+        day_series_from_history=day_series_from_history,
+        replay_snapshots_from_history=replay_snapshots_from_history,
+        filter_replay_series=filter_replay_series,
+        session_from_summary=session_from_summary,
+        candles_for_session=candles_for_session,
+        summary_path_from_id=summary_path_from_id,
+        chart_payload_from_summary_path=chart_payload_from_summary_path,
+        day_series_from_summary_path=day_series_from_summary_path,
+        replay_snapshots_from_summary_path=replay_snapshots_from_summary_path,
+        skew_tenors_payload_for_summary=skew_tenors_payload_for_summary,
+        latest_history_snapshot=latest_history_snapshot,
+        latest_summary_path=latest_summary_path,
+        vn_tz=VN_TZ,
+        file_cache=SnapshotFileCache(SNAPSHOT_CACHE_ROOT),
+    )
+
+    intraday_service = IntradayService(
+        session_for_trading_date=session_for_trading_date,
+        seed_session_data=seed_session_data,
+        latest_snapshot_id_for_trading_day=latest_snapshot_id_for_trading_day,
+        candles_for_session=candles_for_session,
+        snapshot_service=snapshot_service,
+        file_cache=IntradayFileCache(INTRADAY_CACHE_ROOT),
+    )
+
     def apply_secondary_basis_for_request(payload: dict, ticker: str) -> None:
         if (
             state.secondary_ticker
@@ -1657,12 +1243,11 @@ def main() -> None:
         state=state,
         ticker=args.ticker.upper(),
         window=args.window,
-        list_trading_days=list_trading_days,
-        load_snapshot_state=load_snapshot_state,
-        load_intraday_state=load_intraday_state,
+        snapshot_service=snapshot_service,
+        intraday_service=intraday_service,
         apply_secondary_basis=apply_secondary_basis_for_request,
     )
-    worker = threading.Thread(target=collector, args=(args, state), daemon=True)
+    worker = threading.Thread(target=collector, args=(args, state, snapshot_service), daemon=True)
     worker.start()
     if state.secondary_ticker:
         levels_worker = threading.Thread(
@@ -1673,7 +1258,10 @@ def main() -> None:
         )
         levels_worker.start()
     candles_worker = threading.Thread(
-        target=alpaca_candles_collector, args=(args.ticker, state), daemon=True
+        target=alpaca_candles_collector,
+        args=(args.ticker, state),
+        kwargs={"market_session_utc": market_session_utc},
+        daemon=True,
     )
     candles_worker.start()
 

@@ -11,6 +11,8 @@ import { drawFlow, drawFlowTracker, flowState, initFlowControls, initTrackerCont
 
 let latestState = null;
 let lastChartKey = "";
+let lastHeatLiveRefreshAt = 0;
+const HEAT_LIVE_REFRESH_MS = 60_000;
 
 function resetChartLocks() {
   lastChartKey = "";
@@ -237,11 +239,15 @@ async function refreshHeatPanelPayload(force = false) {
     ? (latestState.session?.trading_date || heatDateInput?.value || nyDateISO())
     : panelDayState.heat;
   if (!tradingDate || tradingDate === "live") return;
-  panelPayload.heat = await fetchIntradaySnapshot(
-    selectedTicker,
-    tradingDate,
-    force && panelDayState.heat === "live"
-  );
+  const isLiveSecondary = panelDayState.heat === "live" && selectedTicker !== primaryTicker;
+  const now = Date.now();
+  if (isLiveSecondary && panelPayload.heat && now - lastHeatLiveRefreshAt < HEAT_LIVE_REFRESH_MS) {
+    drawHeatPanel(latestState);
+    return;
+  }
+  const shouldForce = force && !isLiveSecondary;
+  panelPayload.heat = await fetchIntradaySnapshot(selectedTicker, tradingDate, shouldForce);
+  if (isLiveSecondary) lastHeatLiveRefreshAt = Date.now();
   drawHeatPanel(latestState);
 }
 
