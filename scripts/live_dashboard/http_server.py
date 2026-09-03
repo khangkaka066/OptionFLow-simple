@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import gzip
 import json
 import mimetypes
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
+
+# Below this size gzip's own overhead isn't worth the CPU time.
+_GZIP_MIN_BYTES = 512
 
 from .cache import ResponseCache
 from .intraday_service import IntradayService
@@ -168,8 +172,16 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.send_bytes(body.encode("utf-8"), content_type, status)
 
     def send_bytes(self, data: bytes, content_type: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+        encoding = None
+        if len(data) >= _GZIP_MIN_BYTES and "gzip" in self.headers.get("Accept-Encoding", ""):
+            compressed = gzip.compress(data, compresslevel=6)
+            if len(compressed) < len(data):
+                data = compressed
+                encoding = "gzip"
         self.send_response(status)
         self.send_header("Content-Type", content_type)
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
