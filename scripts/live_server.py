@@ -59,6 +59,7 @@ DATA_STORE = DataStore(DATA_ROOT, ny_tz=NY_TZ, vn_tz=VN_TZ)
 IV_RANK_HISTORY_PATH = DATA_ROOT / "iv_rank_history.csv"
 INTRADAY_CACHE_ROOT = PROJECT_ROOT / "data" / "cache" / "intraday"
 SNAPSHOT_CACHE_ROOT = PROJECT_ROOT / "data" / "cache" / "snapshot"
+GITHUB_SYNC_STATUS_PATH = PROJECT_ROOT / "data" / "github_sync_status.json"
 
 
 def skew_tenors_payload(ticker: str, spot: float, effective_day: str) -> list[dict]:
@@ -247,12 +248,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _write_github_sync_status(ok: bool, message: str) -> None:
+    try:
+        GITHUB_SYNC_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "ok": ok,
+            "message": message,
+            "checked_at": datetime.now(VN_TZ).isoformat(),
+        }
+        GITHUB_SYNC_STATUS_PATH.write_text(json.dumps(payload), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def pull_github_updates_on_startup(enabled: bool = True) -> None:
     if not enabled:
         print("GitHub sync skipped (--no-github-pull).", flush=True)
+        _write_github_sync_status(False, "Skipped (--no-github-pull).")
         return
     if not (PROJECT_ROOT / ".git").exists():
         print("GitHub sync skipped: this folder is not a git repo.", flush=True)
+        _write_github_sync_status(False, "Skipped: not a git repo.")
         return
     try:
         result = subprocess.run(
@@ -265,15 +281,18 @@ def pull_github_updates_on_startup(enabled: bool = True) -> None:
         )
     except Exception as exc:
         print(f"GitHub sync warning: could not run git pull ({exc}).", flush=True)
+        _write_github_sync_status(False, f"git pull failed: {exc}")
         return
     output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
     if result.returncode == 0:
         first_line = output.splitlines()[0] if output else "Already up to date."
         print(f"GitHub sync ok: {first_line}", flush=True)
+        _write_github_sync_status(True, first_line)
     else:
         print("GitHub sync warning: git pull --ff-only failed; continuing with local data.", flush=True)
         if output:
             print(output, flush=True)
+        _write_github_sync_status(False, "git pull --ff-only failed; using local data.")
 
 
 def latest_summary_path(ticker: str) -> Path:
@@ -1045,6 +1064,8 @@ def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subp
         str(DATA_ROOT),
         "--interactive-output",
         str(PROJECT_ROOT / "dashboard.html"),
+        "--github-sync-status",
+        str(GITHUB_SYNC_STATUS_PATH),
         "--no-open",
     ]
     if args.expiry:

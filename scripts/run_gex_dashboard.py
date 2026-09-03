@@ -75,6 +75,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional explicit output HTML path for interactive zoom/hover dashboard.",
     )
     parser.add_argument(
+        "--github-sync-status",
+        type=Path,
+        default=None,
+        help="Optional path to a JSON file with GitHub EOD sync status, shown as a badge on the dashboard.",
+    )
+    parser.add_argument(
         "--no-interactive",
         action="store_true",
         help="Skip interactive HTML dashboard generation.",
@@ -232,6 +238,8 @@ def main() -> None:
         ]
         if args.interactive_output:
             interactive_cmd += ["--output", str(args.interactive_output)]
+        if args.github_sync_status:
+            interactive_cmd += ["--github-sync-status", str(args.github_sync_status)]
         run(interactive_cmd)
         interactive = args.interactive_output or dataset_dir / f"{ticker}_{expiry}_interactive.html"
 

@@ -60,6 +60,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--window", type=float, default=14)
     parser.add_argument("--top", type=int, default=40)
+    parser.add_argument(
+        "--github-sync-status",
+        type=Path,
+        default=None,
+        help="Optional path to a JSON file with GitHub EOD sync status, shown as a badge on the dashboard.",
+    )
     return parser.parse_args()
 
 
@@ -1134,6 +1140,24 @@ def render_dealer_balance(mode: str, summary: dict) -> str:
     )
 
 
+def render_sync_badge(status_path: Path | None) -> str:
+    if not status_path:
+        return ""
+    try:
+        payload = json.loads(status_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    checked_at = payload.get("checked_at")
+    time_text = ""
+    try:
+        time_text = " " + pd.Timestamp(checked_at).strftime("%H:%M") if checked_at else ""
+    except Exception:
+        time_text = ""
+    if payload.get("ok"):
+        return f'<div class="sync-badge" style="color:{GREEN}">&#10003; GitHub EOD synced{time_text}</div>'
+    return f'<div class="sync-badge" style="color:{ORANGE}">&#9888; GitHub sync failed{time_text} &mdash; using local data</div>'
+
+
 PAGE_TEMPLATE = """<!doctype html>
 <html>
 <head>
@@ -1151,6 +1175,7 @@ PAGE_TEMPLATE = """<!doctype html>
   }}
   .meta {{ color: {muted}; font-size: 13px; }}
   .meta b {{ color: {text}; }}
+  .sync-badge {{ font-size: 12px; font-weight: 600; }}
   .panel-grid {{ padding: 16px; display: flex; flex-direction: column; gap: 16px; }}
   .panel-row {{ display: flex; gap: 16px; }}
   .panel-row > .panel {{ flex: 1; min-width: 0; }}
@@ -1189,6 +1214,7 @@ PAGE_TEMPLATE = """<!doctype html>
 <body>
 <div class="topbar">
   <div class="meta"><b>{ticker}</b> &middot; 0DTE &middot; expiry {expiry} &middot; snapshot {snapshot}</div>
+  {sync_status}
 </div>
 <div class="panel-grid">
     <div class="panel panel-wide">
@@ -1275,6 +1301,7 @@ def render(
     output: Path,
     window: float,
     top: int,
+    github_sync_status: Path | None = None,
 ) -> None:
     spot = float(summary["spot"])
     data = prepare_data(by_strike, spot, window, top)
@@ -1344,6 +1371,7 @@ def render(
         gex_balance=render_dealer_balance("gex", summary),
         dex_balance=render_dealer_balance("dex", summary),
         levels_export=build_levels_line(summary),
+        sync_status=render_sync_badge(github_sync_status),
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1354,7 +1382,7 @@ def main() -> None:
     args = parse_args()
     summary, by_strike = load_data(args.input_dir, args.ticker, args.expiry)
     output = args.output or args.input_dir / f"{summary['ticker']}_{summary['expiry']}_interactive.html"
-    render(summary, by_strike, args.input_dir, output, args.window, args.top)
+    render(summary, by_strike, args.input_dir, output, args.window, args.top, args.github_sync_status)
     print(f"Saved interactive dashboard: {output}")
 
 
