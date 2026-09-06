@@ -51,6 +51,33 @@ def bs_charm(spot: float, strike: float, years: float, rate: float, iv: float) -
     return float(norm.pdf(d1) * (d2 / (2 * years) - rate / (iv * sqrt_t)))
 
 
+def bs_vega(spot: float, strike: float, years: float, rate: float, iv: float) -> float:
+    if spot <= 0 or strike <= 0 or years <= 0 or iv <= 0 or not np.isfinite(iv):
+        return 0.0
+    d1 = (math.log(spot / strike) + (rate + 0.5 * iv**2) * years) / (iv * math.sqrt(years))
+    return float(spot * norm.pdf(d1) * math.sqrt(years))
+
+
+def bs_theta(
+    spot: float,
+    strike: float,
+    years: float,
+    rate: float,
+    iv: float,
+    option_type: str,
+) -> float:
+    if spot <= 0 or strike <= 0 or years <= 0 or iv <= 0 or not np.isfinite(iv):
+        return 0.0
+    sqrt_t = math.sqrt(years)
+    d1 = (math.log(spot / strike) + (rate + 0.5 * iv**2) * years) / (iv * sqrt_t)
+    d2 = d1 - iv * sqrt_t
+    discount = math.exp(-rate * years)
+    decay_term = -(spot * norm.pdf(d1) * iv) / (2 * sqrt_t)
+    if option_type == "call":
+        return float(decay_term - rate * strike * discount * norm.cdf(d2))
+    return float(decay_term + rate * strike * discount * norm.cdf(-d2))
+
+
 def bs_price(
     spot: float,
     strike: float,
@@ -115,20 +142,35 @@ def implied_volatility_from_price(
     return float((low + high) / 2.0)
 
 
+def years_to_expiry_at(expiry: str, snapshot_time: datetime) -> tuple[int, float]:
+    """Intraday-aware T at a specific snapshot timestamp."""
+    expiry_day = datetime.strptime(expiry, "%Y-%m-%d").date()
+    if snapshot_time.tzinfo is None:
+        snapshot_time = snapshot_time.replace(tzinfo=ZoneInfo("America/New_York"))
+    ny_time = snapshot_time.astimezone(ZoneInfo("America/New_York"))
+    snapshot_day = ny_time.date()
+    days = max((expiry_day - snapshot_day).days, 0)
+    if days == 0:
+        close_time = ny_time.replace(hour=16, minute=0, second=0, microsecond=0)
+        remaining_minutes = max((close_time - ny_time).total_seconds() / 60.0, 30.0)
+        years = remaining_minutes / (365.0 * 24.0 * 60.0)
+    else:
+        years = days / 365.0
+    return days, years
+
+
 def years_to_expiry(expiry: str, snapshot_day: date) -> tuple[int, float]:
     """Intraday-aware T: same-day (0DTE) uses minutes remaining to the 16:00 NY close."""
+    ny_now = datetime.now(ZoneInfo("America/New_York"))
+    if snapshot_day == ny_now.date():
+        return years_to_expiry_at(expiry, ny_now)
+
     expiry_day = datetime.strptime(expiry, "%Y-%m-%d").date()
     days = max((expiry_day - snapshot_day).days, 0)
     if days == 0:
-        ny_now = datetime.now(ZoneInfo("America/New_York"))
-        if snapshot_day == ny_now.date():
-            close_time = ny_now.replace(hour=16, minute=0, second=0, microsecond=0)
-            remaining_minutes = max((close_time - ny_now).total_seconds() / 60.0, 30.0)
-        else:
-            # Historical same-day recompute has no intraday timestamp, so use one full
-            # regular session as a conservative 0DTE approximation.
-            remaining_minutes = 6.5 * 60
-        years = remaining_minutes / (365.0 * 24.0 * 60.0)
+        # Historical same-day recompute has no intraday timestamp, so use one full
+        # regular session as a conservative 0DTE approximation.
+        years = (6.5 * 60) / (365.0 * 24.0 * 60.0)
     else:
         years = days / 365.0
     return days, years

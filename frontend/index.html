@@ -211,6 +211,92 @@
       <div id="gexribbonTooltip" class="heat-tooltip" style="display:none;"></div>
     </div>
   </div>
+  <div class="panel" id="exposureSurfacePanel">
+    <div class="panel-header">
+      <span class="dot" style="background:#22D3EE"></span>Exposure Surface
+      <span class="panel-subtitle">WebGL surface by strike x expiry</span>
+      <div class="surface3d__controls">
+        <select id="exposureTicker">
+          <option value="QQQ">QQQ</option>
+          <option value="NDX">NDX</option>
+        </select>
+        <select id="exposureGreek">
+          <option value="gex">GEX</option>
+          <option value="dex">DEX</option>
+          <option value="vex">VEX</option>
+          <option value="chex">CHEX</option>
+        </select>
+        <select id="exposureMode">
+          <option value="net">Net</option>
+          <option value="call">Call</option>
+          <option value="put">Put</option>
+        </select>
+        <select id="exposureRange">
+          <option value="">Auto</option>
+          <option value="5">±5</option>
+          <option value="10">±10</option>
+          <option value="20">±20</option>
+          <option value="50">±50</option>
+          <option value="250">±250</option>
+        </select>
+      </div>
+      <input type="date" class="panel-date-picker" id="exposureDate">
+    </div>
+    <div class="body surface3d__body">
+      <div class="surface3d__stage">
+        <div class="surface3d__canvas" id="exposure3dCanvas"></div>
+        <button class="chart-reset surface3d__reset" id="exposureResetView" type="button">reset view</button>
+        <div class="surface3d__bar" id="exposureLegend">
+          <span id="exposureLegendMin">-</span>
+          <div class="surface3d__gradient"></div>
+          <span id="exposureLegendMax">-</span>
+        </div>
+      </div>
+      <div class="surface3d__status" id="exposureStatus">Loading...</div>
+    </div>
+  </div>
+  <div class="panel" id="rawgreekSurfacePanel">
+    <div class="panel-header">
+      <span class="dot" style="background:#22D3EE"></span>Greek Surface
+      <span class="panel-subtitle">WebGL surface by strike x expiry</span>
+      <div class="surface3d__controls">
+        <select id="rawgreekTicker">
+          <option value="QQQ">QQQ</option>
+          <option value="NDX">NDX</option>
+        </select>
+        <select id="rawgreekGreek">
+          <option value="gamma">Gamma</option>
+          <option value="delta">Delta</option>
+          <option value="theta">Theta</option>
+          <option value="vega">Vega</option>
+        </select>
+      </div>
+      <input type="date" class="panel-date-picker" id="rawgreekDate">
+    </div>
+    <div class="body surface3d__body">
+      <div class="surface3d__stage">
+        <div class="surface3d__canvas" id="rawgreek3dCanvas"></div>
+        <button class="chart-reset surface3d__reset" id="rawgreekResetView" type="button">reset view</button>
+        <div class="surface3d__bar" id="rawgreekLegend">
+          <span id="rawgreekLegendMin">-</span>
+          <div class="surface3d__gradient"></div>
+          <span id="rawgreekLegendMax">-</span>
+        </div>
+      </div>
+      <div class="surface3d__status" id="rawgreekStatus">Loading...</div>
+    </div>
+  </div>
+  <div class="panel wide">
+    <div class="panel-header">
+      <span class="dot" style="background:#38BDF8"></span>Expected Move
+      <span class="panel-subtitle" id="emStat">waiting for anchor...</span>
+      <span class="panel-subtitle" id="emTicker">QQQ</span>
+      <input type="date" class="panel-date-picker" id="emDate">
+    </div>
+    <div class="body" id="emWrap" style="height:300px; position:relative; padding:0;">
+      <canvas id="emCanvas" style="width:100%; height:100%; display:block;"></canvas>
+    </div>
+  </div>
   <div class="panel wide">
     <div class="panel-header">
       <span class="dot" style="background:#FACC15"></span>Levels Export

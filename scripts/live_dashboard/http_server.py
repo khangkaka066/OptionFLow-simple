@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 _GZIP_MIN_BYTES = 512
 
 from .cache import ResponseCache
+from .greek_surface_service import GreekSurfaceService
 from .intraday_service import IntradayService
 from .snapshot_service import SnapshotService
 from .web_assets import read_index_html, resolve_asset_path
@@ -23,6 +24,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     window: float = 14.0
     snapshot_service: SnapshotService | None = None
     intraday_service: IntradayService | None = None
+    greek_surface_service: GreekSurfaceService | None = None
     apply_secondary_basis = None
     response_cache = ResponseCache(max_entries=64)
     history_cache_ttl_seconds: float = 120.0
@@ -31,6 +33,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args) -> None:
         return
+
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (ConnectionResetError, BrokenPipeError):
+            return
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -98,6 +106,102 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     size=len(error),
                 )
             return
+        if parsed.path == "/api/stream":
+            query = parse_qs(parsed.query)
+            panels = {item.strip() for item in (query.get("panels", ["greek_surface"])[0] or "").split(",") if item.strip()}
+            if "greek_surface" not in panels:
+                self.send_bytes(b"event: heartbeat\ndata: {}\n\n", "text/event-stream")
+                return
+            ticker = query.get("ticker", query.get("tickers", [self.ticker]))[0] or self.ticker
+            trading_date = query.get("date", [""])[0] or None
+            greek = query.get("greek", ["gex"])[0] or "gex"
+            mode = query.get("mode", ["net"])[0] or "net"
+            strike_range = self.float_query(query, "range")
+            dte_max_raw = self.float_query(query, "dte_max")
+            dte_max = int(dte_max_raw) if dte_max_raw is not None else None
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            last_payload_key = None
+            try:
+                while True:
+                    try:
+                        payload = self.greek_surface_service.load_surface(
+                            ticker=ticker,
+                            trading_date=trading_date,
+                            greek=greek,
+                            mode=mode,
+                            strike_range=strike_range,
+                            dte_max=dte_max,
+                        )
+                    except (FileNotFoundError, ValueError) as exc:
+                        self.write_sse("error", {"error": str(exc)})
+                        self.write_sse("heartbeat", {"ts": time.time()})
+                        time.sleep(30)
+                        continue
+                    payload_key = (
+                        payload.get("ticker"),
+                        payload.get("snapshot_utc"),
+                        payload.get("greek"),
+                        payload.get("mode"),
+                        payload.get("rawMaxAbs"),
+                        len(payload.get("strikes") or []),
+                        len(payload.get("expiries") or []),
+                    )
+                    if payload_key != last_payload_key:
+                        self.write_sse("greek_surface", payload)
+                        last_payload_key = payload_key
+                    self.write_sse("heartbeat", {"ts": time.time()})
+                    time.sleep(30)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return
+        if parsed.path == "/api/greek-surface":
+            started = time.perf_counter()
+            query = parse_qs(parsed.query)
+            ticker = query.get("ticker", [self.ticker])[0] or self.ticker
+            trading_date = query.get("date", [""])[0] or None
+            greek = query.get("greek", ["gex"])[0] or "gex"
+            mode = query.get("mode", ["net"])[0] or "net"
+            refresh = query.get("refresh", ["0"])[0] == "1"
+            strike_range = self.float_query(query, "range")
+            dte_max_raw = self.float_query(query, "dte_max")
+            dte_max = int(dte_max_raw) if dte_max_raw is not None else None
+            try:
+                payload = self.greek_surface_service.load_surface(
+                    ticker=ticker,
+                    trading_date=trading_date,
+                    greek=greek,
+                    mode=mode,
+                    strike_range=strike_range,
+                    dte_max=dte_max,
+                    refresh=refresh,
+                )
+                body = self.json_bytes(payload)
+                self.send_bytes(body, "application/json")
+                self.log_api_timing(
+                    "greek_surface",
+                    started=started,
+                    ticker=ticker,
+                    trading_date=trading_date,
+                    greek=greek,
+                    mode=mode,
+                    size=len(body),
+                )
+            except Exception as exc:
+                error = json.dumps({"error": str(exc)}).encode("utf-8")
+                self.send_bytes(error, "application/json", HTTPStatus.BAD_REQUEST)
+                self.log_api_timing(
+                    "greek_surface",
+                    started=started,
+                    ticker=ticker,
+                    trading_date=trading_date,
+                    greek=greek,
+                    mode=mode,
+                    size=len(error),
+                )
+            return
         if parsed.path == "/api/intraday":
             started = time.perf_counter()
             query = parse_qs(parsed.query)
@@ -151,6 +255,20 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         parts.append(f"ms={elapsed_ms:.1f}")
         print(f"[perf] api.{endpoint} " + " ".join(parts), flush=True)
 
+    def write_sse(self, event: str, payload: dict) -> None:
+        message = f"event: {event}\ndata: {json.dumps(payload, default=str, allow_nan=False)}\n\n"
+        self.wfile.write(message.encode("utf-8"))
+        self.wfile.flush()
+
+    def float_query(self, query: dict, key: str) -> float | None:
+        value = query.get(key, [None])[0]
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
     def json_bytes(self, payload: dict) -> bytes:
         return json.dumps(payload, default=str, allow_nan=False).encode("utf-8")
 
@@ -195,6 +313,7 @@ def configure_handler(
     window: float,
     snapshot_service: SnapshotService,
     intraday_service: IntradayService,
+    greek_surface_service: GreekSurfaceService,
     apply_secondary_basis,
 ) -> type[DashboardRequestHandler]:
     class ConfiguredDashboardRequestHandler(DashboardRequestHandler):
@@ -205,6 +324,7 @@ def configure_handler(
     ConfiguredDashboardRequestHandler.window = window
     ConfiguredDashboardRequestHandler.snapshot_service = snapshot_service
     ConfiguredDashboardRequestHandler.intraday_service = intraday_service
+    ConfiguredDashboardRequestHandler.greek_surface_service = greek_surface_service
     ConfiguredDashboardRequestHandler.apply_secondary_basis = staticmethod(apply_secondary_basis)
     ConfiguredDashboardRequestHandler.response_cache = ResponseCache(max_entries=64)
     return ConfiguredDashboardRequestHandler

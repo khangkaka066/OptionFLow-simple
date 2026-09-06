@@ -2,11 +2,26 @@ import { COLORS, COLOR_STORAGE_KEYS, EXPOSURE_CONFIG, LEGACY_DEFAULT_COLORS } fr
 import { normalizeHex, nyDateISO, validHex } from "./utils.js";
 import { fetchDaySnapshot, fetchIntradaySnapshot } from "./api.js";
 import { drawLevelsPanel as renderLevelsPanel, initLevelsCopyControls } from "./levels.js";
+import { drawExpectedMovePanel as renderExpectedMovePanel } from "./expected-move.js";
 import { drawIvRank } from "./iv-rank.js";
 import { drawOi, drawOiIv } from "./oi.js";
 import { drawExposure } from "./exposure.js";
 import { drawSkew, initSkewControls } from "./skew.js";
 import { drawGexRibbon, heatState, initHeatTrackerControls } from "./heat-tracker.js";
+import { createSurfacePanel } from "./greek-surface.js";
+
+const exposureSurfacePanel = createSurfacePanel({
+  idPrefix: "exposure",
+  defaultGreek: "gex",
+  defaultMode: "net",
+  hasModeSelect: true,
+  hasRangeSelect: true,
+});
+const greekSurfacePanel = createSurfacePanel({
+  idPrefix: "rawgreek",
+  defaultGreek: "gamma",
+  defaultMode: "raw",
+});
 import { drawFlow, drawFlowTracker, flowState, initFlowControls, initTrackerControls, trackerState } from "./flow-panels.js";
 
 let latestState = null;
@@ -133,6 +148,8 @@ function initExposureTabs() {
 }
 
 initHeatTrackerControls(refreshHeatPanelPayload);
+exposureSurfacePanel.init(() => latestState);
+greekSurfacePanel.init(() => latestState);
 initExposureTabs();
 
 initSkewControls(() => {
@@ -140,10 +157,10 @@ initSkewControls(() => {
 });
 
 const panelDayState = {
-  levels: "live", ivRank: "live", skew: "live", oiIv: "live", oi: "live", exposureGex: "live", exposureDex: "live", heat: "live"
+  levels: "live", ivRank: "live", skew: "live", oiIv: "live", oi: "live", exposureGex: "live", exposureDex: "live", heat: "live", em: "live"
 };
 const panelPayload = {
-  levels: null, ivRank: null, skew: null, oiIv: null, oi: null, exposureGex: null, exposureDex: null, heat: null
+  levels: null, ivRank: null, skew: null, oiIv: null, oi: null, exposureGex: null, exposureDex: null, heat: null, em: null
 };
 function drawLevelsPanel() {
   renderLevelsPanel({latestState, panelDayState, panelPayload});
@@ -253,6 +270,7 @@ async function refreshHeatPanelPayload(force = false) {
 
 function redrawPinnablePanels() {
   drawHeatPanel(latestState);
+  renderExpectedMovePanel({latestState, panelDayState, panelPayload});
   drawLevelsPanel();
   drawIvRankPanel();
   drawSkewPanel();
@@ -324,6 +342,9 @@ function initPanelDatePickers() {
   bindPanelDatePicker("heat", "heatDate", async value => {
     panelPayload.heat = await fetchIntradaySnapshot(heatState.ticker || latestState?.latest_summary?.ticker || "QQQ", value);
   });
+  bindPanelDatePicker("em", "emDate", async value => {
+    panelPayload.em = await fetchIntradaySnapshot(latestState?.latest_summary?.ticker || "QQQ", value);
+  });
 }
 initLevelsCopyControls();
 initPanelDatePickers();
@@ -332,6 +353,12 @@ function drawAll(state) {
   drawFlow(state.points || [], state.session || null, state.candles || []);
   drawFlowTracker(state.points || [], state.session || null);
   redrawPinnablePanels();
+  exposureSurfacePanel.refresh(state).catch(err => {
+    document.getElementById("status").textContent = "Exposure Surface error: " + err.message;
+  });
+  greekSurfacePanel.refresh(state).catch(err => {
+    document.getElementById("status").textContent = "Greek Surface error: " + err.message;
+  });
 }
 
 async function update() {
@@ -354,6 +381,14 @@ async function update() {
   const latestCandle = candles.length ? candles[candles.length - 1].t : "";
   const chartKey = [
     heatState.ticker || "",
+    exposureSurfacePanel.state.ticker || "",
+    exposureSurfacePanel.state.greek || "",
+    exposureSurfacePanel.state.mode || "",
+    exposureSurfacePanel.state.range || "",
+    exposureSurfacePanel.state.date || "",
+    greekSurfacePanel.state.ticker || "",
+    greekSurfacePanel.state.greek || "",
+    greekSurfacePanel.state.date || "",
     state.latest_summary?.snapshot_utc || "",
     state.skew_summary?.snapshot_utc || "",
     state.skew_tenors?.length || 0,
@@ -405,6 +440,8 @@ document.getElementById("trackerResetZoom")?.addEventListener("click", () => {
   if (latestState) drawAll(latestState);
 });
 window.addEventListener("resize", () => {
+  exposureSurfacePanel.state.renderer?.resize();
+  greekSurfacePanel.state.renderer?.resize();
   if (latestState) drawAll(latestState);
 });
 update();

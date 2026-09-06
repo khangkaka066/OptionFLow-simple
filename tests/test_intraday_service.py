@@ -46,6 +46,7 @@ def test_intraday_service_uses_file_cache_and_refresh_bypasses_it(tmp_path) -> N
         latest_snapshot_id_for_trading_day=lambda day_id, ticker: "history:test#close",
         candles_for_session=lambda ticker, session: ([], None),
         snapshot_service=FakeSnapshotService(),
+        find_expected_move_anchor=lambda points, market_open_utc, ticker: {"ticker": ticker, "spot": 100},
         file_cache=IntradayFileCache(tmp_path),
     )
 
@@ -57,3 +58,4 @@ def test_intraday_service_uses_file_cache_and_refresh_bypasses_it(tmp_path) -> N
     assert first["points"] == [{"time": "seed", "spot": 100}]
     assert second["points"] == [{"time": "seed", "spot": 100}]
     assert refreshed["refresh_seen"] is True
+    assert first["expected_move_anchor"] == {"ticker": "NDX", "spot": 100}

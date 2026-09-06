@@ -19,6 +19,7 @@ class LiveState:
         self.levels_locked: bool = False
         self.levels_summary_secondary: dict | None = None
         self.levels_locked_secondary: bool = False
+        self.expected_move_anchor: dict | None = None
         self.secondary_ticker: str = ""
         self.secondary_futures_ticker: str = ""
         self.candles: list[dict] = []
@@ -46,6 +47,7 @@ class LiveState:
                 "levels_locked": self.levels_locked,
                 "levels_summary_secondary": self.levels_summary_secondary,
                 "levels_locked_secondary": self.levels_locked_secondary,
+                "expected_move_anchor": self.expected_move_anchor,
                 "secondary_ticker": self.secondary_ticker,
                 "secondary_futures_ticker": self.secondary_futures_ticker,
                 "candles": self.candles,

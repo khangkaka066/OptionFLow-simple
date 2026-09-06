@@ -24,7 +24,17 @@ from datetime import date, datetime, timezone
 import numpy as np
 import pandas as pd
 
-from bsm import bs_charm, bs_delta, bs_gamma, bs_vanna, implied_volatility_from_price
+from bsm import (
+    bs_charm,
+    bs_delta,
+    bs_gamma,
+    bs_theta,
+    bs_vanna,
+    bs_vega,
+    implied_volatility_from_price,
+    years_to_expiry,
+    years_to_expiry_at,
+)
 
 MULTIPLIER = 100
 
@@ -121,6 +131,13 @@ def compute_greeks(
     chain["charm"] = [
         bs_charm(spot, strike, y, rate, iv) for strike, y, iv in zip(chain["strike"], years, chain["impliedVolatility"])
     ]
+    chain["vega"] = [
+        bs_vega(spot, strike, y, rate, iv) for strike, y, iv in zip(chain["strike"], years, chain["impliedVolatility"])
+    ]
+    chain["theta"] = [
+        bs_theta(spot, strike, y, rate, iv, option_type)
+        for strike, y, iv, option_type in zip(chain["strike"], years, chain["impliedVolatility"], chain["option_type"])
+    ]
     raw_gex = chain["gamma"] * chain["openInterest"] * MULTIPLIER * spot**2 * 0.01
     chain["gex"] = np.where(chain["option_type"] == "call", raw_gex, -raw_gex)
     chain["abs_gex"] = chain["gex"].abs()
@@ -176,6 +193,83 @@ def aggregate_by_strike(chain: pd.DataFrame) -> pd.DataFrame:
     return by_strike.reset_index()
 
 
+def aggregate_by_expiry_strike(chain: pd.DataFrame) -> pd.DataFrame:
+    """Same as `aggregate_by_strike` but keeps expiries separate, for a real
+    strike x expiry surface (`aggregate_by_strike` collapses all expiries
+    present in `chain` into one row per strike)."""
+    calls = chain[chain["option_type"] == "call"]
+    puts = chain[chain["option_type"] == "put"]
+    group_cols = ["expiry", "strike"]
+    call_by = calls.groupby(group_cols, dropna=True).agg(
+        call_gex=("gex", "sum"),
+        call_dex=("dex", "sum"),
+        call_vex=("vex", "sum"),
+        call_chex=("chex", "sum"),
+        call_oi=("openInterest", "sum"),
+        call_volume=("volume", "sum"),
+        call_iv=("impliedVolatility", "mean"),
+        call_mid=("mid", "mean"),
+    )
+    put_by = puts.groupby(group_cols, dropna=True).agg(
+        put_gex=("gex", "sum"),
+        put_dex=("dex", "sum"),
+        put_vex=("vex", "sum"),
+        put_chex=("chex", "sum"),
+        put_oi=("openInterest", "sum"),
+        put_volume=("volume", "sum"),
+        put_iv=("impliedVolatility", "mean"),
+        put_mid=("mid", "mean"),
+    )
+    by_expiry_strike = call_by.join(put_by, how="outer").sort_index()
+    by_expiry_strike["iv"] = by_expiry_strike[["call_iv", "put_iv"]].mean(axis=1, skipna=True)
+    fill_cols = [
+        "call_gex", "call_dex", "call_vex", "call_chex", "call_oi", "call_volume",
+        "put_gex", "put_dex", "put_vex", "put_chex", "put_oi", "put_volume",
+    ]
+    by_expiry_strike[fill_cols] = by_expiry_strike[fill_cols].fillna(0.0)
+    by_expiry_strike["net_gex"] = by_expiry_strike["call_gex"] + by_expiry_strike["put_gex"]
+    by_expiry_strike["abs_net_gex"] = by_expiry_strike["net_gex"].abs()
+    by_expiry_strike["net_dex"] = by_expiry_strike["call_dex"] + by_expiry_strike["put_dex"]
+    by_expiry_strike["abs_net_dex"] = by_expiry_strike["net_dex"].abs()
+    by_expiry_strike["net_vex"] = by_expiry_strike["call_vex"] + by_expiry_strike["put_vex"]
+    by_expiry_strike["abs_net_vex"] = by_expiry_strike["net_vex"].abs()
+    by_expiry_strike["net_chex"] = by_expiry_strike["call_chex"] + by_expiry_strike["put_chex"]
+    by_expiry_strike["abs_net_chex"] = by_expiry_strike["net_chex"].abs()
+    return by_expiry_strike.reset_index()
+
+
+RAW_GREEK_COLUMNS = {"delta": "delta", "gamma": "gamma", "theta": "theta", "vega": "vega"}
+
+
+def aggregate_greeks_by_expiry_strike(chain: pd.DataFrame) -> pd.DataFrame:
+    """Open-interest-weighted mean of each raw per-contract Greek (delta/gamma/
+    theta/vega), pooling calls and puts, one row per (expiry, strike).
+
+    This is distinct from `aggregate_by_expiry_strike`, which sums *dollar*
+    exposure (GEX/DEX/VEX/CHEX). Here we want the Greek's own value/scale (e.g.
+    per-share gamma), matching quantdecay's "Greek Surface" panel. No sign-flip
+    heuristic is needed: `bs_delta`/`bs_theta` are already signed per
+    option_type, and `bs_gamma`/`bs_vega` are magnitude-only by construction.
+    """
+    data = chain.copy()
+    data["strike"] = pd.to_numeric(data["strike"], errors="coerce")
+    data["openInterest"] = pd.to_numeric(data["openInterest"], errors="coerce").fillna(0.0).clip(lower=0.0)
+    data = data.dropna(subset=["expiry", "strike"])
+    group_cols = ["expiry", "strike"]
+    total_oi = data.groupby(group_cols, dropna=True)["openInterest"].sum()
+    out = pd.DataFrame(index=total_oi.index)
+    out["total_oi"] = total_oi
+    for greek_key, source_col in RAW_GREEK_COLUMNS.items():
+        weighted = data[source_col] * data["openInterest"]
+        weighted_sum = weighted.groupby([data["expiry"], data["strike"]], dropna=True).sum()
+        unweighted_mean = data[source_col].groupby([data["expiry"], data["strike"]], dropna=True).mean()
+        has_oi = total_oi > 0
+        out[f"avg_{greek_key}"] = np.where(
+            has_oi, weighted_sum / total_oi.replace(0, np.nan), unweighted_mean
+        )
+    return out.reset_index()
+
+
 def compute_flip(by_strike: pd.DataFrame, column: str, spot: float) -> float | None:
     """Strike where the cumulative (strike-ascending) sum of `column` crosses zero.
 
@@ -229,6 +323,81 @@ def nearest_atm_iv(by_strike: pd.DataFrame, spot: float) -> float | None:
         return None
     near = pool.assign(dist=(pool["strike"] - spot).abs()).sort_values("dist").head(5)
     return float(near["iv"].median()) * 100
+
+
+def compute_expected_move(
+    spot: float | None, atm_iv_pct: float | None, years_to_expiry: float | None
+) -> float | None:
+    """1 std-dev expected move in price terms: spot * ATM IV * sqrt(time-to-expiry).
+
+    `atm_iv_pct` is a percent (e.g. 14.3), matching `nearest_atm_iv`'s return
+    convention. Returns None if any input is missing so callers can render a
+    "not ready yet" state instead of a bogus zero.
+    """
+    if spot is None or atm_iv_pct is None or years_to_expiry is None:
+        return None
+    return float(spot) * (float(atm_iv_pct) / 100.0) * float(np.sqrt(max(float(years_to_expiry), 0.0)))
+
+
+def build_expected_move_anchor_from_point(
+    *,
+    ticker: str,
+    point: dict,
+    point_ts: pd.Timestamp,
+    years_to_expiry_value: float,
+    days_to_expiry: int,
+    expiry: str,
+) -> dict | None:
+    """Freeze a spot/ATM-IV based 1 std-dev Expected Move at one snapshot point."""
+    spot = point.get("spot")
+    move_abs = compute_expected_move(spot, point.get("atm_iv"), years_to_expiry_value)
+    if move_abs is None:
+        return None
+    spot = float(spot)
+    return {
+        "ticker": ticker,
+        "captured_at": point_ts.isoformat(),
+        "spot": spot,
+        "atm_iv": float(point["atm_iv"]),
+        "days_to_expiry": days_to_expiry,
+        "years_to_expiry": years_to_expiry_value,
+        "expiry": expiry,
+        "move_abs": move_abs,
+        "move_pct": (move_abs / spot * 100.0) if spot else None,
+        "upper": spot + move_abs,
+        "lower": spot - move_abs,
+        "upper2": spot + move_abs * 2.0,
+        "lower2": spot - move_abs * 2.0,
+    }
+
+
+def find_expected_move_anchor(points: list[dict], market_open_utc: str, ticker: str) -> dict | None:
+    """Freeze Expected Move at the first snapshot at/after market open."""
+    if not points or not market_open_utc:
+        return None
+    anchor_ts = pd.Timestamp(market_open_utc)
+    for point in sorted(points, key=lambda p: p.get("time") or ""):
+        point_ts = pd.to_datetime(point.get("time"), errors="coerce", utc=True)
+        if pd.isna(point_ts) or point_ts < anchor_ts:
+            continue
+        expiry = point.get("expiry")
+        if not expiry:
+            continue
+        try:
+            days, years = years_to_expiry_at(expiry, point_ts.to_pydatetime())
+        except (TypeError, ValueError):
+            continue
+        anchor = build_expected_move_anchor_from_point(
+            ticker=ticker,
+            point=point,
+            point_ts=point_ts,
+            years_to_expiry_value=years,
+            days_to_expiry=days,
+            expiry=expiry,
+        )
+        if anchor is not None:
+            return anchor
+    return None
 
 
 def first_or_none(series: pd.Series) -> float | None:

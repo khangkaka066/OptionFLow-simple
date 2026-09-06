@@ -16,6 +16,7 @@ class IntradayService:
         latest_snapshot_id_for_trading_day: Callable[[str, str], str],
         candles_for_session: Callable[[str, dict], tuple[list[dict], str | None]],
         snapshot_service: SnapshotService,
+        find_expected_move_anchor: Callable[[list[dict], str, str], dict | None],
         file_cache: IntradayFileCache | None = None,
     ) -> None:
         self._session_for_trading_date = session_for_trading_date
@@ -23,6 +24,7 @@ class IntradayService:
         self._latest_snapshot_id_for_trading_day = latest_snapshot_id_for_trading_day
         self._candles_for_session = candles_for_session
         self._snapshot_service = snapshot_service
+        self._find_expected_move_anchor = find_expected_move_anchor
         self._file_cache = file_cache
 
     def load_state(self, trading_date: str, ticker: str, window: float, *, refresh: bool = False) -> dict:
@@ -60,6 +62,9 @@ class IntradayService:
         payload["points"] = points or payload.get("points", [])
         payload["gex_ribbon"] = ribbon or payload.get("gex_ribbon", [])
         payload["session"] = session
+        payload["expected_move_anchor"] = self._find_expected_move_anchor(
+            payload["points"], session["market_open_utc"], ticker
+        )
         if "candles" not in payload:
             candles, candles_error = self._candles_for_session(ticker, session)
             payload["candles"] = candles

@@ -22,8 +22,9 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-from exposure import nearest_atm_iv
+from exposure import find_expected_move_anchor, nearest_atm_iv
 from live_dashboard.data_store import DataStore
+from live_dashboard.greek_surface_service import GreekSurfaceService
 from live_dashboard.http_server import configure_handler
 from live_dashboard.intraday_file_cache import IntradayFileCache
 from live_dashboard.intraday_service import IntradayService
@@ -1038,6 +1039,7 @@ def day_series_from_history(summary_history_path: Path, selected_summary: dict, 
 
 
 
+
 def load_latest(ticker: str, window: float) -> tuple[dict, dict, list[dict], list[dict], dict]:
     summary_path = latest_summary_path(ticker)
     summary, point, rows, history, gex_snapshot = chart_payload_from_summary_path(summary_path, ticker, window)
@@ -1135,6 +1137,10 @@ def collector(args: argparse.Namespace, state: LiveState, snapshot_service: Snap
                         if day_high is not None:
                             state.levels_summary["one_day_max"] = day_high
                     market_open = pd.Timestamp(state.session["market_open_utc"])
+                    if state.expected_move_anchor is None:
+                        state.expected_move_anchor = find_expected_move_anchor(
+                            state.points, state.session["market_open_utc"], summary.get("ticker") or args.ticker
+                        )
                     if pd.notna(point_ts) and point_ts >= collect_start:
                         state.latest_summary = summary
                         state.by_strike = rows
@@ -1242,12 +1248,15 @@ def main() -> None:
         file_cache=SnapshotFileCache(SNAPSHOT_CACHE_ROOT),
     )
 
+    greek_surface_service = GreekSurfaceService(DATA_STORE)
+
     intraday_service = IntradayService(
         session_for_trading_date=session_for_trading_date,
         seed_session_data=seed_session_data,
         latest_snapshot_id_for_trading_day=latest_snapshot_id_for_trading_day,
         candles_for_session=candles_for_session,
         snapshot_service=snapshot_service,
+        find_expected_move_anchor=find_expected_move_anchor,
         file_cache=IntradayFileCache(INTRADAY_CACHE_ROOT),
     )
 
@@ -1266,6 +1275,7 @@ def main() -> None:
         window=args.window,
         snapshot_service=snapshot_service,
         intraday_service=intraday_service,
+        greek_surface_service=greek_surface_service,
         apply_secondary_basis=apply_secondary_basis_for_request,
     )
     worker = threading.Thread(target=collector, args=(args, state, snapshot_service), daemon=True)
