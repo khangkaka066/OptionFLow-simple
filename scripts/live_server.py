@@ -58,6 +58,7 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_ROOT = Path(__file__).resolve().parent
 RUN_DASHBOARD_SCRIPT = SCRIPT_ROOT / "run_gex_dashboard.py"
+DAILY_SNAPSHOT_SCRIPT = SCRIPT_ROOT / "daily_qqq_snapshot.py"
 DATA_ROOT = PROJECT_ROOT / "data" / "options"
 DATA_STORE = DataStore(DATA_ROOT, ny_tz=NY_TZ, vn_tz=VN_TZ)
 IV_RANK_HISTORY_PATH = DATA_ROOT / "iv_rank_history.csv"
@@ -1103,7 +1104,33 @@ TENOR_REFRESH_EVERY_N_PULLS = 5
 TENOR_REFRESH_HORIZON_DAYS = 10
 
 
+def env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subprocess.CompletedProcess:
+    if not env_flag("LIVE_RENDER_STATIC_DASHBOARD", False):
+        cmd = [
+            sys.executable,
+            str(DAILY_SNAPSHOT_SCRIPT),
+            "--ticker",
+            args.ticker,
+            "--rate",
+            str(args.rate),
+            "--top",
+            str(args.top),
+            "--output-root",
+            str(DATA_ROOT),
+        ]
+        if args.expiry:
+            cmd += ["--expiry", args.expiry]
+        if fetch_tenor:
+            cmd += ["--all-expiries", "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS)]
+        return subprocess.run(cmd, cwd=PROJECT_ROOT, check=False, text=True, capture_output=True)
+
     cmd = [
         sys.executable,
         str(RUN_DASHBOARD_SCRIPT),
@@ -1203,9 +1230,17 @@ def collector(args: argparse.Namespace, state: LiveState, snapshot_service: Snap
             state.next_fetch = next_fetch_dt.isoformat()
 
         pull_count += 1
-        fetch_tenor = pull_count % TENOR_REFRESH_EVERY_N_PULLS == 0
+        fetch_tenor = env_flag("LIVE_ENABLE_TENOR_REFRESH", False) and pull_count % TENOR_REFRESH_EVERY_N_PULLS == 0
+        snapshot_started = time.perf_counter()
         result = run_snapshot(args, fetch_tenor=fetch_tenor)
+        snapshot_ms = round((time.perf_counter() - snapshot_started) * 1000, 1)
         with state.lock:
+            state.data_status["snapshot"] = {
+                "ms": snapshot_ms,
+                "fetch_tenor": fetch_tenor,
+                "static_dashboard": env_flag("LIVE_RENDER_STATIC_DASHBOARD", False),
+                "returncode": result.returncode,
+            }
             if result.returncode != 0:
                 state.failures += 1
                 state.latest_error = subprocess_error_tail(result)

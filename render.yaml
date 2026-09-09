@@ -12,6 +12,10 @@ services:
         value: "*"
       - key: DISABLE_GREEK_SURFACE
         value: "1"
+      - key: LIVE_ENABLE_TENOR_REFRESH
+        value: "0"
+      - key: LIVE_RENDER_STATIC_DASHBOARD
+        value: "0"
       - key: MONGODB_DATABASE
         value: optionflow
       - key: MONGODB_DATA_RETENTION_DAYS
