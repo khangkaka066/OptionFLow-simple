@@ -39,6 +39,14 @@ MongoDB TTL indexes delete snapshot, by-strike, raw-chain, and intraday metric
 documents after 7 days. IV Rank daily rows are kept separately as the latest 60
 sessions per ticker.
 
+To upload the local dataset without filling the free MongoDB tier, migrate only
+the latest 4 heavy data folders while still backfilling IV Rank from all local
+daily summaries:
+
+```bash
+python3 scripts/migrate_dataset_to_mongo.py --recent-days 4 --iv-rank-all
+```
+
 ## 2. Deploy Frontend On Vercel
 
 Import this repository into Vercel as a static project. The root `vercel.json`
