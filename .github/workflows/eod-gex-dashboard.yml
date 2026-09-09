@@ -31,6 +31,10 @@ jobs:
     env:
       TZ: Asia/Ho_Chi_Minh
       TICKER: ${{ github.event.inputs.ticker || 'QQQ' }}
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: optionflow
+      MONGODB_DATA_RETENTION_DAYS: "7"
+      MONGODB_IV_RANK_SESSIONS: "60"
 
     steps:
       - name: Checkout
