@@ -460,16 +460,31 @@ def write_iv_rank_history_csv(rows: list[dict]) -> None:
     df.loc[:, columns].to_csv(IV_RANK_HISTORY_PATH, index=False)
 
 
-def load_history(ticker: str) -> list[dict]:
+def load_history(ticker: str, status: dict | None = None) -> list[dict]:
     rows = build_iv_rank_history_rows(ticker)
+    source = "local" if rows else "none"
+    mongo_configured = bool(os.getenv("MONGODB_URI", "").strip())
+    mongo_error = None
     if not rows:
         try:
             mongo = MongoDatasetStore.from_env()
             if mongo is not None:
                 rows = mongo.load_iv_rank_history(ticker, limit=60)
+                source = "mongo" if rows else "mongo_empty"
+            elif mongo_configured:
+                source = "mongo_unavailable"
         except Exception as exc:
+            mongo_error = str(exc)
+            source = "mongo_error"
             print(f"[mongo] iv-rank history unavailable: {exc}", flush=True)
     write_iv_rank_history_csv(rows)
+    if status is not None:
+        status["iv_rank"] = {
+            "source": source,
+            "rows": len(rows),
+            "mongo_configured": mongo_configured,
+            "mongo_error": mongo_error,
+        }
     return rows[-60:]
 
 
@@ -1195,7 +1210,7 @@ def collector(args: argparse.Namespace, state: LiveState, snapshot_service: Snap
                 state.failures += 1
                 state.latest_error = subprocess_error_tail(result)
                 if not state.history:
-                    state.history = load_history(args.ticker)
+                    state.history = load_history(args.ticker, state.data_status)
             else:
                 try:
                     summary, point, rows, history, gex_snapshot = load_latest(args.ticker, args.window)
@@ -1308,7 +1323,7 @@ def main() -> None:
         args.ticker, state.session, collect_start_ts, args.window
     )
     if not state.history:
-        state.history = load_history(args.ticker)
+        state.history = load_history(args.ticker, state.data_status)
     state.skew_summary, state.skew_by_strike, _skew_history = seed_locked_snapshot(
         args.ticker, state.session, market_open_ts, args.window
     )

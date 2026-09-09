@@ -27,6 +27,7 @@ class LiveState:
         self.candles: list[dict] = []
         self.candles_error: str | None = None
         self.latest_error: str | None = None
+        self.data_status: dict = {}
         self.running = True
         self.successes = 0
         self.failures = 0
@@ -56,6 +57,7 @@ class LiveState:
                 "candles": self.candles,
                 "candles_error": self.candles_error,
                 "latest_error": self.latest_error,
+                "data_status": self.data_status,
                 "running": self.running,
                 "successes": self.successes,
                 "failures": self.failures,
