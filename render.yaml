@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements-options.txt
-    startCommand: python scripts/live_server.py --host 0.0.0.0 --port $PORT --no-github-pull
+    startCommand: python scripts/live_server.py --host 0.0.0.0 --port $PORT --no-github-pull --interval-seconds 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
