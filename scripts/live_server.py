@@ -1115,6 +1115,15 @@ def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subp
     return subprocess.run(cmd, cwd=PROJECT_ROOT, check=False, text=True, capture_output=True)
 
 
+def subprocess_error_tail(result: subprocess.CompletedProcess, *, max_lines: int = 8) -> str:
+    """Return enough child-process output to diagnose Render failures from /api/state."""
+    output = "\n".join(part for part in (result.stderr, result.stdout) if part)
+    lines = output.strip().splitlines()
+    if lines:
+        return "\n".join(lines[-max_lines:])
+    return f"exit {result.returncode}"
+
+
 KEY_LEVEL_DISTANCE_THRESHOLD = 0.005
 
 
@@ -1184,8 +1193,9 @@ def collector(args: argparse.Namespace, state: LiveState, snapshot_service: Snap
         with state.lock:
             if result.returncode != 0:
                 state.failures += 1
-                tail = (result.stderr or result.stdout or "").strip().splitlines()[-1:]
-                state.latest_error = tail[0] if tail else f"exit {result.returncode}"
+                state.latest_error = subprocess_error_tail(result)
+                if not state.history:
+                    state.history = load_history(args.ticker)
             else:
                 try:
                     summary, point, rows, history, gex_snapshot = load_latest(args.ticker, args.window)
@@ -1297,6 +1307,8 @@ def main() -> None:
     state.latest_summary, state.by_strike, state.history = seed_locked_snapshot(
         args.ticker, state.session, collect_start_ts, args.window
     )
+    if not state.history:
+        state.history = load_history(args.ticker)
     state.skew_summary, state.skew_by_strike, _skew_history = seed_locked_snapshot(
         args.ticker, state.session, market_open_ts, args.window
     )
