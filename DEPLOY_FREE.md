@@ -32,12 +32,16 @@ MONGODB_URI=mongodb+srv://...
 MONGODB_DATABASE=optionflow
 MONGODB_DATA_RETENTION_DAYS=7
 MONGODB_IV_RANK_SESSIONS=60
+DISABLE_GREEK_SURFACE=1
 ```
 
 When `MONGODB_URI` is set, new intraday snapshots are mirrored to MongoDB.
 MongoDB TTL indexes delete snapshot, by-strike, raw-chain, and intraday metric
 documents after 7 days. IV Rank daily rows are kept separately as the latest 60
 sessions per ticker.
+
+`DISABLE_GREEK_SURFACE=1` is recommended on Render Free because the 3D surface
+endpoint can exceed the 512 MB memory limit while reading raw chain data.
 
 To upload the local dataset without filling the free MongoDB tier, migrate only
 the latest 4 heavy data folders while still backfilling IV Rank from all local

@@ -1362,6 +1362,7 @@ def main() -> None:
         greek_surface_service=greek_surface_service,
         apply_secondary_basis=apply_secondary_basis_for_request,
         cors_allowed_origin=os.getenv("LIVE_API_CORS_ORIGIN", "*"),
+        greek_surface_enabled=os.getenv("DISABLE_GREEK_SURFACE", "0") != "1",
     )
     worker = threading.Thread(target=collector, args=(args, state, snapshot_service), daemon=True)
     worker.start()

@@ -31,6 +31,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     snapshot_cache_ttl_seconds: float = 120.0
     intraday_cache_ttl_seconds: float = 45.0
     cors_allowed_origin: str = "*"
+    greek_surface_enabled: bool = True
 
     def log_message(self, fmt: str, *args) -> None:
         return
@@ -110,7 +111,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/stream":
             query = parse_qs(parsed.query)
             panels = {item.strip() for item in (query.get("panels", ["greek_surface"])[0] or "").split(",") if item.strip()}
-            if "greek_surface" not in panels:
+            if "greek_surface" not in panels or not self.greek_surface_enabled:
                 self.send_bytes(b"event: heartbeat\ndata: {}\n\n", "text/event-stream")
                 return
             ticker = query.get("ticker", query.get("tickers", [self.ticker]))[0] or self.ticker
@@ -166,6 +167,19 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             trading_date = query.get("date", [""])[0] or None
             greek = query.get("greek", ["gex"])[0] or "gex"
             mode = query.get("mode", ["net"])[0] or "net"
+            if not self.greek_surface_enabled:
+                body = self.json_bytes({"error": "Greek surface is disabled on this backend"})
+                self.send_bytes(body, "application/json", HTTPStatus.SERVICE_UNAVAILABLE)
+                self.log_api_timing(
+                    "greek_surface",
+                    started=started,
+                    ticker=ticker,
+                    trading_date=trading_date,
+                    greek=greek,
+                    mode=mode,
+                    size=len(body),
+                )
+                return
             refresh = query.get("refresh", ["0"])[0] == "1"
             strike_range = self.float_query(query, "range")
             dte_max_raw = self.float_query(query, "dte_max")
@@ -332,6 +346,7 @@ def configure_handler(
     greek_surface_service: GreekSurfaceService,
     apply_secondary_basis,
     cors_allowed_origin: str = "*",
+    greek_surface_enabled: bool = True,
 ) -> type[DashboardRequestHandler]:
     class ConfiguredDashboardRequestHandler(DashboardRequestHandler):
         pass
@@ -344,5 +359,6 @@ def configure_handler(
     ConfiguredDashboardRequestHandler.greek_surface_service = greek_surface_service
     ConfiguredDashboardRequestHandler.apply_secondary_basis = staticmethod(apply_secondary_basis)
     ConfiguredDashboardRequestHandler.cors_allowed_origin = cors_allowed_origin
+    ConfiguredDashboardRequestHandler.greek_surface_enabled = greek_surface_enabled
     ConfiguredDashboardRequestHandler.response_cache = ResponseCache(max_entries=64)
     return ConfiguredDashboardRequestHandler

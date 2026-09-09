@@ -10,6 +10,8 @@ services:
         value: 3.11.9
       - key: LIVE_API_CORS_ORIGIN
         value: "*"
+      - key: DISABLE_GREEK_SURFACE
+        value: "1"
       - key: MONGODB_DATABASE
         value: optionflow
       - key: MONGODB_DATA_RETENTION_DAYS
