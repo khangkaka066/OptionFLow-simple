@@ -62,7 +62,14 @@ class MongoDatasetStore:
     ) -> None:
         from pymongo import MongoClient
 
-        self.client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        client_options: dict[str, Any] = {"serverSelectionTimeoutMS": 5000}
+        try:
+            import certifi
+
+            client_options["tlsCAFile"] = certifi.where()
+        except Exception:
+            pass
+        self.client = MongoClient(uri, **client_options)
         self.db = self.client[database]
         self.retention_days = max(1, int(retention_days))
         self.iv_rank_sessions = max(1, int(iv_rank_sessions))
