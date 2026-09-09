@@ -5,11 +5,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
+from zoneinfo import ZoneInfo
 
 
 DEFAULT_DATABASE = "optionflow"
 DEFAULT_RETENTION_DAYS = 7
 DEFAULT_IV_RANK_SESSIONS = 60
+VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 def _clean_value(value: Any) -> Any:
@@ -230,6 +232,42 @@ class MongoDatasetStore:
             upsert=True,
         )
         self.prune_iv_rank_daily(ticker.upper())
+
+    def load_iv_rank_history(self, ticker: str, *, limit: int | None = None) -> list[dict]:
+        self.ensure_indexes()
+        row_limit = limit or self.iv_rank_sessions
+        docs = list(
+            self.db.iv_rank_daily.find({"ticker": ticker.upper()}, {"_id": 0})
+            .sort("trading_date", -1)
+            .limit(row_limit)
+        )
+        rows = []
+        for doc in reversed(docs):
+            capture_ts = doc.get("capture_ts")
+            snapshot = pd.to_datetime(capture_ts, errors="coerce", utc=True)
+            snapshot_utc = snapshot.isoformat() if pd.notna(snapshot) else str(capture_ts or "")
+            snapshot_vn = snapshot.tz_convert(VN_TZ).isoformat() if pd.notna(snapshot) else snapshot_utc
+            avg_iv = doc.get("avg_iv")
+            try:
+                avg_iv_pct = float(avg_iv) * 100.0 if avg_iv is not None and float(avg_iv) <= 1 else float(avg_iv)
+            except (TypeError, ValueError):
+                avg_iv_pct = None
+            rows.append(
+                _clean_doc(
+                    {
+                        "date": doc.get("trading_date"),
+                        "ticker": ticker.upper(),
+                        "snapshot_utc": snapshot_utc,
+                        "snapshot_vn": snapshot_vn,
+                        "spot": doc.get("spot"),
+                        "atm_iv_pct": avg_iv_pct,
+                        "avg_iv_pct": avg_iv_pct,
+                        "iv_rank_pct": doc.get("iv_rank"),
+                        "iv_source": "mongo_iv_rank_daily",
+                    }
+                )
+            )
+        return rows
 
     def _compute_iv_rank(self, ticker: str, trading_date: str, avg_iv: float | None) -> float | None:
         if avg_iv is None:

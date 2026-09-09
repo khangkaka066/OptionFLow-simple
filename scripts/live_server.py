@@ -49,6 +49,7 @@ from live_dashboard.time_utils import (
     session_for_trading_date,
     set_collect_start_offset_min,
 )
+from mongo_store import MongoDatasetStore
 from render_gex_interactive import build_tenor_curves, load_multi_tenor_skew
 from sources import yahoo
 
@@ -461,6 +462,13 @@ def write_iv_rank_history_csv(rows: list[dict]) -> None:
 
 def load_history(ticker: str) -> list[dict]:
     rows = build_iv_rank_history_rows(ticker)
+    if not rows:
+        try:
+            mongo = MongoDatasetStore.from_env()
+            if mongo is not None:
+                rows = mongo.load_iv_rank_history(ticker, limit=60)
+        except Exception as exc:
+            print(f"[mongo] iv-rank history unavailable: {exc}", flush=True)
     write_iv_rank_history_csv(rows)
     return rows[-60:]
 
