@@ -1,10 +1,12 @@
+import { apiUrl } from "./config.js";
+
 const daySnapshotCache = new Map();
 const intradaySnapshotCache = new Map();
 
 export async function fetchDaySnapshot(ticker, dayId) {
   const key = ticker + "::" + dayId;
   if (!daySnapshotCache.has(key)) {
-    daySnapshotCache.set(key, fetch("/api/snapshot?id=" + encodeURIComponent(dayId) + "&ticker=" + encodeURIComponent(ticker) + "&ts=" + Date.now())
+    daySnapshotCache.set(key, fetch(apiUrl("/api/snapshot?id=" + encodeURIComponent(dayId) + "&ticker=" + encodeURIComponent(ticker) + "&ts=" + Date.now()))
       .then(res => res.json())
       .then(payload => {
         if (payload.error) throw new Error(payload.error);
@@ -22,7 +24,7 @@ export async function fetchIntradaySnapshot(ticker, tradingDate, force = false) 
   const key = ticker + "::intraday::" + tradingDate;
   if (force) intradaySnapshotCache.delete(key);
   if (!intradaySnapshotCache.has(key)) {
-    intradaySnapshotCache.set(key, fetch("/api/intraday?date=" + encodeURIComponent(tradingDate) + "&ticker=" + encodeURIComponent(ticker) + "&ts=" + Date.now())
+    intradaySnapshotCache.set(key, fetch(apiUrl("/api/intraday?date=" + encodeURIComponent(tradingDate) + "&ticker=" + encodeURIComponent(ticker) + "&ts=" + Date.now()))
       .then(res => res.json())
       .then(payload => {
         if (payload.error) throw new Error(payload.error);
@@ -46,8 +48,7 @@ export async function fetchGreekSurface({ticker, date, greek, mode, range, force
   if (range) params.set("range", range);
   if (force) params.set("refresh", "1");
   params.set("ts", String(Date.now()));
-  const base = (window.location && window.location.origin) || "";
-  const res = await fetch(base + "/api/greek-surface?" + params.toString());
+  const res = await fetch(apiUrl("/api/greek-surface?" + params.toString()));
   const payload = await res.json();
   if (payload.error) throw new Error(payload.error);
   return payload;

@@ -319,6 +319,31 @@
       </div>
     </div>
   </div>
+  <div class="panel wide">
+    <div class="panel-header">
+      <span class="dot" style="background:#22D3EE"></span>Key Level Summary
+    </div>
+    <div class="body levels-body">
+      <div class="levels-row">
+        <div class="levels-row-header">
+          <span class="levels-tag" id="keyLevelTag">PENDING</span>
+          <button type="button" id="keyLevelCopyBtn">Copy</button>
+        </div>
+        <div id="keyLevelStatus">Đang chờ xác nhận sau 9:00 NY...</div>
+        <div id="keyLevelBody" hidden>
+          <div>Regime GEX: <span id="keyLevelGamma">NA</span></div>
+          <div>IV EOD: <span id="keyLevelIv">NA</span></div>
+          <div>Vanna EOD: <span id="keyLevelVanna">NA</span></div>
+          <div>DEX: <span id="keyLevelDex">NA</span></div>
+          <div>Key Level: <span id="keyLevelKey">NA</span></div>
+          <div>Trigger: <span id="keyLevelTrigger">NA</span></div>
+          <div>Đọc: <span id="keyLevelConfidence">NA</span></div>
+          <ul id="keyLevelNotes"></ul>
+        </div>
+        <pre class="export-line" id="keyLevelExport"></pre>
+      </div>
+    </div>
+  </div>
 </div>
 <script type="module" src="/assets/app.js"></script>
 </body>

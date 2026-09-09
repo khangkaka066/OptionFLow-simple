@@ -371,32 +371,59 @@ def build_expected_move_anchor_from_point(
     }
 
 
+EXPECTED_MOVE_TARGET_OFFSET_MIN = 5.0
+EXPECTED_MOVE_TARGET_WINDOW_MIN = 2.0
+
+
+def _anchor_from_point(point: dict, point_ts: pd.Timestamp, ticker: str) -> dict | None:
+    expiry = point.get("expiry")
+    if not expiry:
+        return None
+    try:
+        days, years = years_to_expiry_at(expiry, point_ts.to_pydatetime())
+    except (TypeError, ValueError):
+        return None
+    return build_expected_move_anchor_from_point(
+        ticker=ticker,
+        point=point,
+        point_ts=point_ts,
+        years_to_expiry_value=years,
+        days_to_expiry=days,
+        expiry=expiry,
+    )
+
+
 def find_expected_move_anchor(points: list[dict], market_open_utc: str, ticker: str) -> dict | None:
-    """Freeze Expected Move at the first snapshot at/after market open."""
+    """Freeze Expected Move at the ~9:35-9:36 ET snapshot (5-7 min after
+    open), the window by which the chain has settled from the open auction.
+
+    Falls back to the first snapshot at/after market open when nothing
+    landed in that window (e.g. the collector's poll cadence skipped it),
+    so the panel still gets an anchor rather than staying empty.
+    """
     if not points or not market_open_utc:
         return None
     anchor_ts = pd.Timestamp(market_open_utc)
-    for point in sorted(points, key=lambda p: p.get("time") or ""):
+    window_start = anchor_ts + pd.Timedelta(minutes=EXPECTED_MOVE_TARGET_OFFSET_MIN)
+    window_end = window_start + pd.Timedelta(minutes=EXPECTED_MOVE_TARGET_WINDOW_MIN)
+    ordered = sorted(points, key=lambda p: p.get("time") or "")
+
+    for point in ordered:
+        point_ts = pd.to_datetime(point.get("time"), errors="coerce", utc=True)
+        if pd.isna(point_ts) or point_ts < window_start or point_ts >= window_end:
+            continue
+        anchor = _anchor_from_point(point, point_ts, ticker)
+        if anchor is not None:
+            return anchor
+
+    for point in ordered:
         point_ts = pd.to_datetime(point.get("time"), errors="coerce", utc=True)
         if pd.isna(point_ts) or point_ts < anchor_ts:
             continue
-        expiry = point.get("expiry")
-        if not expiry:
-            continue
-        try:
-            days, years = years_to_expiry_at(expiry, point_ts.to_pydatetime())
-        except (TypeError, ValueError):
-            continue
-        anchor = build_expected_move_anchor_from_point(
-            ticker=ticker,
-            point=point,
-            point_ts=point_ts,
-            years_to_expiry_value=years,
-            days_to_expiry=days,
-            expiry=expiry,
-        )
+        anchor = _anchor_from_point(point, point_ts, ticker)
         if anchor is not None:
             return anchor
+
     return None
 
 

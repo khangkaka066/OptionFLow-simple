@@ -1,7 +1,8 @@
-import { COLORS, COLOR_STORAGE_KEYS, EXPOSURE_CONFIG, LEGACY_DEFAULT_COLORS } from "./config.js";
+import { COLORS, COLOR_STORAGE_KEYS, EXPOSURE_CONFIG, LEGACY_DEFAULT_COLORS, apiUrl } from "./config.js";
 import { normalizeHex, nyDateISO, validHex } from "./utils.js";
 import { fetchDaySnapshot, fetchIntradaySnapshot } from "./api.js";
 import { drawLevelsPanel as renderLevelsPanel, initLevelsCopyControls } from "./levels.js";
+import { drawKeyLevelPanel as renderKeyLevelPanel, initKeyLevelCopyControls } from "./key-level-summary.js";
 import { drawExpectedMovePanel as renderExpectedMovePanel } from "./expected-move.js";
 import { drawIvRank } from "./iv-rank.js";
 import { drawOi, drawOiIv } from "./oi.js";
@@ -166,6 +167,10 @@ function drawLevelsPanel() {
   renderLevelsPanel({latestState, panelDayState, panelPayload});
 }
 
+function drawKeyLevelPanel() {
+  renderKeyLevelPanel({latestState});
+}
+
 function drawIvRankPanel() {
   if (panelDayState.ivRank === "live") {
     if (!latestState) return;
@@ -272,6 +277,7 @@ function redrawPinnablePanels() {
   drawHeatPanel(latestState);
   renderExpectedMovePanel({latestState, panelDayState, panelPayload});
   drawLevelsPanel();
+  drawKeyLevelPanel();
   drawIvRankPanel();
   drawSkewPanel();
   drawOiIvPanel();
@@ -347,6 +353,7 @@ function initPanelDatePickers() {
   });
 }
 initLevelsCopyControls();
+initKeyLevelCopyControls();
 initPanelDatePickers();
 
 function drawAll(state) {
@@ -362,7 +369,7 @@ function drawAll(state) {
 }
 
 async function update() {
-  const res = await fetch("/api/state?ts=" + Date.now());
+  const res = await fetch(apiUrl("/api/state?ts=" + Date.now()));
   const state = await res.json();
   latestState = state;
   const status = [

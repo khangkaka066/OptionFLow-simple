@@ -30,6 +30,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     history_cache_ttl_seconds: float = 120.0
     snapshot_cache_ttl_seconds: float = 120.0
     intraday_cache_ttl_seconds: float = 45.0
+    cors_allowed_origin: str = "*"
 
     def log_message(self, fmt: str, *args) -> None:
         return
@@ -123,6 +124,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
+            self.send_cors_headers()
             self.end_headers()
             last_payload_key = None
             try:
@@ -247,6 +249,13 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         self.send("not found", "text/plain", HTTPStatus.NOT_FOUND)
 
+    def do_OPTIONS(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_cors_headers()
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.end_headers()
 
     def log_api_timing(self, endpoint: str, *, started: float, size: int = 0, **fields) -> None:
         elapsed_ms = (time.perf_counter() - started) * 1000
@@ -298,12 +307,19 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 encoding = "gzip"
         self.send_response(status)
         self.send_header("Content-Type", content_type)
+        self.send_cors_headers()
         if encoding:
             self.send_header("Content-Encoding", encoding)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
+
+    def send_cors_headers(self) -> None:
+        if not self.cors_allowed_origin:
+            return
+        self.send_header("Access-Control-Allow-Origin", self.cors_allowed_origin)
+        self.send_header("Vary", "Origin")
 
 
 def configure_handler(
@@ -315,6 +331,7 @@ def configure_handler(
     intraday_service: IntradayService,
     greek_surface_service: GreekSurfaceService,
     apply_secondary_basis,
+    cors_allowed_origin: str = "*",
 ) -> type[DashboardRequestHandler]:
     class ConfiguredDashboardRequestHandler(DashboardRequestHandler):
         pass
@@ -326,5 +343,6 @@ def configure_handler(
     ConfiguredDashboardRequestHandler.intraday_service = intraday_service
     ConfiguredDashboardRequestHandler.greek_surface_service = greek_surface_service
     ConfiguredDashboardRequestHandler.apply_secondary_basis = staticmethod(apply_secondary_basis)
+    ConfiguredDashboardRequestHandler.cors_allowed_origin = cors_allowed_origin
     ConfiguredDashboardRequestHandler.response_cache = ResponseCache(max_entries=64)
     return ConfiguredDashboardRequestHandler

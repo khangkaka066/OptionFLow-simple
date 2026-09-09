@@ -1,4 +1,5 @@
 import { fetchGreekSurface } from "./api.js";
+import { apiUrl } from "./config.js";
 import { nyDateISO } from "./utils.js";
 import { Surface3DRenderer, formatCompact } from "./surface3d-renderer.js";
 
@@ -136,8 +137,7 @@ export function createSurfacePanel(cfg) {
       fetchFallback(params, true);
       return;
     }
-    const base = (window.location && window.location.origin) || "";
-    const streamUrl = base + "/api/stream?" + search.toString();
+    const streamUrl = apiUrl("/api/stream?" + search.toString());
     let stream;
     try {
       stream = new EventSource(streamUrl);

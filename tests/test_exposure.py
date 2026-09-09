@@ -129,7 +129,40 @@ def test_find_expected_move_anchor_returns_none_for_empty_or_before_open() -> No
     assert find_expected_move_anchor(points, market_open, "QQQ") is None
 
 
-def test_find_expected_move_anchor_uses_first_qualifying_point() -> None:
+def test_find_expected_move_anchor_prefers_the_935_936_window() -> None:
+    market_open = "2026-09-01T13:30:00+00:00"
+    points = [
+        {"time": "2026-09-01T13:30:00+00:00", "spot": 101.0, "atm_iv": 21.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:37:00+00:00", "spot": 103.0, "atm_iv": 25.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:35:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"},
+    ]
+    anchor = find_expected_move_anchor(points, market_open, "QQQ")
+    assert anchor is not None
+    assert anchor["ticker"] == "QQQ"
+    assert anchor["captured_at"].startswith("2026-09-01T13:35:00")
+    assert anchor["spot"] == 100.0
+    assert anchor["atm_iv"] == 20.0
+    assert anchor["years_to_expiry"] == pytest.approx((6.5 * 60 - 5) / (365 * 24 * 60))
+    assert anchor["upper2"] == pytest.approx(100.0 + anchor["move_abs"] * 2)
+    assert anchor["lower2"] == pytest.approx(100.0 - anchor["move_abs"] * 2)
+    assert anchor["upper"] == pytest.approx(100.0 + anchor["move_abs"])
+    assert anchor["lower"] == pytest.approx(100.0 - anchor["move_abs"])
+
+
+def test_find_expected_move_anchor_accepts_936_when_935_missing() -> None:
+    market_open = "2026-09-01T13:30:00+00:00"
+    points = [
+        {"time": "2026-09-01T13:30:00+00:00", "spot": 101.0, "atm_iv": 21.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:36:30+00:00", "spot": 99.0, "atm_iv": 19.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:37:00+00:00", "spot": 103.0, "atm_iv": 25.0, "expiry": "2026-09-01"},
+    ]
+    anchor = find_expected_move_anchor(points, market_open, "QQQ")
+    assert anchor is not None
+    assert anchor["captured_at"].startswith("2026-09-01T13:36:30")
+    assert anchor["spot"] == 99.0
+
+
+def test_find_expected_move_anchor_falls_back_to_first_point_when_935_missing() -> None:
     market_open = "2026-09-01T13:30:00+00:00"
     points = [
         {"time": "2026-09-01T13:31:00+00:00", "spot": 102.0, "atm_iv": 30.0, "expiry": "2026-09-01"},
@@ -137,24 +170,19 @@ def test_find_expected_move_anchor_uses_first_qualifying_point() -> None:
     ]
     anchor = find_expected_move_anchor(points, market_open, "QQQ")
     assert anchor is not None
-    assert anchor["ticker"] == "QQQ"
     assert anchor["captured_at"].startswith("2026-09-01T13:30:00")
     assert anchor["spot"] == 100.0
-    assert anchor["atm_iv"] == 20.0
-    assert anchor["years_to_expiry"] == pytest.approx((6.5 * 60) / (365 * 24 * 60))
-    assert anchor["upper2"] == pytest.approx(100.0 + anchor["move_abs"] * 2)
-    assert anchor["lower2"] == pytest.approx(100.0 - anchor["move_abs"] * 2)
-    assert anchor["upper"] == pytest.approx(100.0 + anchor["move_abs"])
-    assert anchor["lower"] == pytest.approx(100.0 - anchor["move_abs"])
 
 
 def test_find_expected_move_anchor_uses_snapshot_time_for_0dte() -> None:
     market_open = "2026-09-01T13:30:00+00:00"
     early = find_expected_move_anchor(
-        [{"time": "2026-09-01T13:30:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"}],
+        [{"time": "2026-09-01T13:35:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"}],
         market_open,
         "QQQ",
     )
+    # No 9:35 snapshot that day -> falls back to the first point at/after
+    # open, even a very late one, rather than leaving the anchor empty.
     late = find_expected_move_anchor(
         [{"time": "2026-09-01T19:30:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"}],
         market_open,
@@ -163,6 +191,6 @@ def test_find_expected_move_anchor_uses_snapshot_time_for_0dte() -> None:
 
     assert early is not None
     assert late is not None
-    assert early["years_to_expiry"] == pytest.approx((6.5 * 60) / (365 * 24 * 60))
+    assert early["years_to_expiry"] == pytest.approx((6.5 * 60 - 5) / (365 * 24 * 60))
     assert late["years_to_expiry"] == pytest.approx((30 / (365 * 24 * 60)))
     assert early["move_abs"] > late["move_abs"]

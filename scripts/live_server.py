@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -28,6 +29,7 @@ from live_dashboard.greek_surface_service import GreekSurfaceService
 from live_dashboard.http_server import configure_handler
 from live_dashboard.intraday_file_cache import IntradayFileCache
 from live_dashboard.intraday_service import IntradayService
+from live_dashboard.key_level_summary import compute_key_level_summary
 from live_dashboard.market_data import (
     alpaca_candles_collector,
     apply_futures_basis,
@@ -576,15 +578,20 @@ def seed_session_data(ticker: str, session: dict, window: float) -> tuple[list[d
     return points, ribbon
 
 
-def seed_prev_day_eod_summary(ticker: str, today_trading_date: str) -> dict | None:
-    """Return the last recorded snapshot strictly before today's trading
-    date - the previous completed session's actual closing chain.
+def seed_prev_day_eod_summary(
+    ticker: str, today_trading_date: str, window: float | None = None
+) -> tuple[dict | None, list[dict]]:
+    """Return (summary, by_strike rows) for the last recorded snapshot
+    strictly before today's trading date - the previous completed session's
+    actual closing chain.
 
     Levels Export is meant to always show a true EOD reference: on
     2026-08-27 it shows the 2026-08-26 close, all day, regardless of time -
     never an early poll of *today* recomputed with Yahoo's live, moving
     premarket spot. Falls back through JSON summaries on disk if no
-    Parquet history exists yet for the ticker.
+    Parquet history exists yet for the ticker. By-strike rows are only
+    populated when `window` is given; they back the Key Level Summary
+    panel's EOD-basis OI/IV confluence check.
     """
     latest_history = latest_history_snapshot(ticker)
     if latest_history is not None:
@@ -596,8 +603,15 @@ def seed_prev_day_eod_summary(ticker: str, today_trading_date: str) -> dict | No
         summaries["_ny_date"] = summaries["_snapshot_ts"].dt.tz_convert(NY_TZ).dt.date.astype(str)
         summaries = summaries[summaries["_ny_date"] < today_trading_date].sort_values("snapshot_utc")
         if not summaries.empty:
-            return summary_from_history_row(summaries.iloc[-1].to_dict())
-    candidates: list[tuple[pd.Timestamp, dict]] = []
+            summary = summary_from_history_row(summaries.iloc[-1].to_dict())
+            by_strike: list[dict] = []
+            if window is not None:
+                try:
+                    by_strike, _gex_snapshot = rows_for_history_snapshot(summary_history_path, summary, window)
+                except Exception:
+                    by_strike = []
+            return summary, by_strike
+    candidates: list[tuple[pd.Timestamp, dict, Path]] = []
     for path in sorted(DATA_ROOT.glob(f"*/{ticker.upper()}_*_*_summary.json")):
         if len(path.stem.split("_")) != 4:
             continue
@@ -610,10 +624,26 @@ def seed_prev_day_eod_summary(ticker: str, today_trading_date: str) -> dict | No
             continue
         if snapshot.tz_convert(NY_TZ).date().isoformat() >= today_trading_date:
             continue
-        candidates.append((snapshot, summary))
+        candidates.append((snapshot, summary, path))
     if not candidates:
-        return None
-    return max(candidates, key=lambda item: item[0])[1]
+        return None, []
+    _snapshot, summary, summary_path = max(candidates, key=lambda item: item[0])
+    by_strike = []
+    if window is not None:
+        by_strike_path = summary_path.with_name(summary_path.name.replace("_summary.json", "_by_strike.parquet"))
+        if by_strike_path.exists():
+            try:
+                spot = float(summary["spot"])
+                rows = pd.read_parquet(by_strike_path)
+                chart_rows = rows[(rows["strike"] >= spot - window) & (rows["strike"] <= spot + window)].copy()
+                for col in ("iv", "call_oi", "put_oi"):
+                    if col not in chart_rows.columns:
+                        chart_rows[col] = np.nan
+                records = chart_rows.replace([np.inf, -np.inf], np.nan).where(pd.notna(chart_rows), None).to_dict(orient="records")
+                by_strike = clean_records(records)
+            except Exception:
+                by_strike = []
+    return summary, by_strike
 
 
 def seed_locked_snapshot(
@@ -1077,6 +1107,48 @@ def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subp
     return subprocess.run(cmd, cwd=PROJECT_ROOT, check=False, text=True, capture_output=True)
 
 
+KEY_LEVEL_DISTANCE_THRESHOLD = 0.005
+
+
+def refresh_key_level_summary(state: LiveState) -> None:
+    """Recompute state.key_level_summary from whichever basis is valid right now.
+
+    Gated to "pending" until collection_start_utc (09:00 NY) so the panel
+    never shows a partial/early read. After that, EOD DEX/GEX/OI x IV stays
+    the basis as long as live spot is within KEY_LEVEL_DISTANCE_THRESHOLD of
+    the EOD reference spot; once spot has moved further away, the same
+    algorithm is recomputed off today's live intraday summary/by-strike
+    instead, so the read stays valid.
+    """
+    collect_start = pd.Timestamp(state.session["collection_start_utc"])
+    if pd.Timestamp.now(tz="UTC") < collect_start:
+        state.key_level_summary = {"status": "pending"}
+        return
+    live_spot = None
+    if state.latest_summary:
+        try:
+            live_spot = float(state.latest_summary.get("spot"))
+        except (TypeError, ValueError):
+            live_spot = None
+    eod_spot = None
+    if state.levels_summary:
+        try:
+            eod_spot = float(state.levels_summary.get("spot"))
+        except (TypeError, ValueError):
+            eod_spot = None
+    distance_pct = abs(live_spot - eod_spot) / eod_spot if live_spot is not None and eod_spot else None
+    if distance_pct is not None and distance_pct > KEY_LEVEL_DISTANCE_THRESHOLD:
+        state.key_level_summary = compute_key_level_summary(
+            state.latest_summary, state.by_strike, live_spot, basis="intraday",
+            threshold_pct=KEY_LEVEL_DISTANCE_THRESHOLD,
+        )
+    else:
+        state.key_level_summary = compute_key_level_summary(
+            state.levels_summary, state.levels_by_strike, live_spot, basis="eod",
+            threshold_pct=KEY_LEVEL_DISTANCE_THRESHOLD,
+        )
+
+
 def collector(args: argparse.Namespace, state: LiveState, snapshot_service: SnapshotService | None = None) -> None:
     deadline = None
     if args.duration_minutes is not None:
@@ -1153,6 +1225,7 @@ def collector(args: argparse.Namespace, state: LiveState, snapshot_service: Snap
                             float(summary.get("spot") or 0.0),
                             summary.get("effective_snapshot_date") or summary.get("requested_snapshot_date") or "",
                         )
+                    refresh_key_level_summary(state)
                     state.latest_error = None
                     state.successes += 1
                 except Exception as exc:
@@ -1207,7 +1280,9 @@ def main() -> None:
     state = LiveState(market_session_utc())
     state.session["collection_start_utc"] = collection_start_utc(state.session["market_open_utc"])
     state.points, state.gex_ribbon = seed_session_data(args.ticker, state.session, args.window)
-    state.levels_summary = seed_prev_day_eod_summary(args.ticker, state.session["trading_date"])
+    state.levels_summary, state.levels_by_strike = seed_prev_day_eod_summary(
+        args.ticker, state.session["trading_date"], args.window
+    )
     state.levels_locked = True
     collect_start_ts = pd.Timestamp(state.session["collection_start_utc"])
     market_open_ts = pd.Timestamp(state.session["market_open_utc"])
@@ -1219,10 +1294,11 @@ def main() -> None:
     )
     if state.skew_summary:
         state.skew_tenors = skew_tenors_payload_for_summary(args.ticker, state.skew_summary)
+    refresh_key_level_summary(state)
     state.secondary_ticker = args.secondary_ticker.upper() if args.secondary_ticker else ""
     state.secondary_futures_ticker = (args.secondary_futures_ticker or "").upper()
     if state.secondary_ticker:
-        state.levels_summary_secondary = seed_prev_day_eod_summary(
+        state.levels_summary_secondary, _levels_by_strike_secondary = seed_prev_day_eod_summary(
             state.secondary_ticker, state.session["trading_date"]
         )
         state.levels_locked_secondary = True
@@ -1277,6 +1353,7 @@ def main() -> None:
         intraday_service=intraday_service,
         greek_surface_service=greek_surface_service,
         apply_secondary_basis=apply_secondary_basis_for_request,
+        cors_allowed_origin=os.getenv("LIVE_API_CORS_ORIGIN", "*"),
     )
     worker = threading.Thread(target=collector, args=(args, state, snapshot_service), daemon=True)
     worker.start()

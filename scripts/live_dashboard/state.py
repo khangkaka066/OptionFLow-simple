@@ -16,7 +16,9 @@ class LiveState:
         self.skew_by_strike: list[dict] = []
         self.latest_summary: dict | None = None
         self.levels_summary: dict | None = None
+        self.levels_by_strike: list[dict] = []
         self.levels_locked: bool = False
+        self.key_level_summary: dict | None = None
         self.levels_summary_secondary: dict | None = None
         self.levels_locked_secondary: bool = False
         self.expected_move_anchor: dict | None = None
@@ -45,6 +47,7 @@ class LiveState:
                 "latest_summary": self.latest_summary,
                 "levels_summary": self.levels_summary,
                 "levels_locked": self.levels_locked,
+                "key_level_summary": self.key_level_summary,
                 "levels_summary_secondary": self.levels_summary_secondary,
                 "levels_locked_secondary": self.levels_locked_secondary,
                 "expected_move_anchor": self.expected_move_anchor,
