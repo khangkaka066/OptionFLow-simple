@@ -47,6 +47,13 @@ daily summaries:
 python3 scripts/migrate_dataset_to_mongo.py --recent-days 4 --iv-rank-all
 ```
 
+For a faster first upload, skip the expanded intraday metrics and let the live
+collector create those documents from now on:
+
+```bash
+python3 scripts/migrate_dataset_to_mongo.py --recent-days 4 --iv-rank-all --skip-intraday-metrics
+```
+
 ## 2. Deploy Frontend On Vercel
 
 Import this repository into Vercel as a static project. The root `vercel.json`

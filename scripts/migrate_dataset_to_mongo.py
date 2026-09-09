@@ -31,6 +31,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Backfill IV Rank daily rows from all local summaries, even when --recent-days limits heavy data.",
     )
+    parser.add_argument(
+        "--skip-intraday-metrics",
+        action="store_true",
+        help="Skip expanded per-metric intraday documents during historical migration.",
+    )
+    parser.add_argument(
+        "--skip-by-strike",
+        action="store_true",
+        help="Only migrate snapshot summaries for heavy historical data.",
+    )
     return parser.parse_args()
 
 
@@ -90,7 +100,13 @@ def reconciliation_path_for(summary_path: Path) -> Path:
     return summary_path.with_name(summary_path.name.replace("_summary.json", "_reconciliation.json"))
 
 
-def migrate_snapshot(store: MongoDatasetStore, summary_path: Path) -> bool:
+def migrate_snapshot(
+    store: MongoDatasetStore,
+    summary_path: Path,
+    *,
+    skip_intraday_metrics: bool = False,
+    skip_by_strike: bool = False,
+) -> bool:
     parts = summary_path.stem.split("_")
     ticker = parts[0].upper()
     expiry = parts[1]
@@ -110,6 +126,8 @@ def migrate_snapshot(store: MongoDatasetStore, summary_path: Path) -> bool:
         reconciliation=reconciliation,
     )
 
+    if skip_by_strike:
+        return True
     by_strike_path = by_strike_path_for(summary_path)
     if not by_strike_path.exists():
         return True
@@ -122,13 +140,15 @@ def migrate_snapshot(store: MongoDatasetStore, summary_path: Path) -> bool:
     for placeholder in ["net_vex", "net_chex"]:
         if placeholder not in strike_rows:
             strike_rows[placeholder] = None
-    intraday_rows = storage.build_intraday_rows(
-        strike_rows,
-        summary,
-        capture_ts=summary["snapshot_utc"],
-        ticker=ticker,
-        trading_date=trading_date,
-    )
+    intraday_rows = []
+    if not skip_intraday_metrics:
+        intraday_rows = storage.build_intraday_rows(
+            strike_rows,
+            summary,
+            capture_ts=summary["snapshot_utc"],
+            ticker=ticker,
+            trading_date=trading_date,
+        )
     level_row = {
         "trading_date": trading_date,
         "capture_ts": summary["snapshot_utc"],
@@ -209,7 +229,12 @@ def main() -> None:
     failed = 0
     for path in paths:
         try:
-            if migrate_snapshot(store, path):
+            if migrate_snapshot(
+                store,
+                path,
+                skip_intraday_metrics=args.skip_intraday_metrics,
+                skip_by_strike=args.skip_by_strike,
+            ):
                 migrated += 1
         except Exception as exc:
             failed += 1
