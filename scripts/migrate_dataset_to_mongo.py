@@ -110,6 +110,10 @@ def main() -> None:
     store = MongoDatasetStore.from_env()
     if store is None:
         raise SystemExit("Set MONGODB_URI before running this migration.")
+    try:
+        store.client.admin.command("ping")
+    except Exception as exc:
+        raise SystemExit(f"Cannot connect to MongoDB. Check MONGODB_URI, username, password, and Network Access. Error: {exc}")
     paths = summary_paths(args.data_root, args.ticker)
     if args.limit is not None:
         paths = paths[: args.limit]
