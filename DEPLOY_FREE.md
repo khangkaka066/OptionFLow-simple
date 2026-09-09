@@ -25,6 +25,20 @@ Render Free will spin down after 15 minutes without inbound traffic. Keeping the
 dashboard open during market hours lets the frontend polling keep the backend
 active while you are watching it.
 
+Optional MongoDB persistence:
+
+```text
+MONGODB_URI=mongodb+srv://...
+MONGODB_DATABASE=optionflow
+MONGODB_DATA_RETENTION_DAYS=7
+MONGODB_IV_RANK_SESSIONS=60
+```
+
+When `MONGODB_URI` is set, new intraday snapshots are mirrored to MongoDB.
+MongoDB TTL indexes delete snapshot, by-strike, raw-chain, and intraday metric
+documents after 7 days. IV Rank daily rows are kept separately as the latest 60
+sessions per ticker.
+
 ## 2. Deploy Frontend On Vercel
 
 Import this repository into Vercel as a static project. The root `vercel.json`

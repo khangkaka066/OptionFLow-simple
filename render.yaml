@@ -10,3 +10,11 @@ services:
         value: 3.11.9
       - key: LIVE_API_CORS_ORIGIN
         value: "*"
+      - key: MONGODB_DATABASE
+        value: optionflow
+      - key: MONGODB_DATA_RETENTION_DAYS
+        value: "7"
+      - key: MONGODB_IV_RANK_SESSIONS
+        value: "60"
+      - key: MONGODB_URI
+        sync: false

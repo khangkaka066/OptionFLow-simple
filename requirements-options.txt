@@ -7,3 +7,4 @@ pyarrow
 plotly
 duckdb
 python-dotenv
+pymongo

@@ -23,8 +23,10 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from mongo_store import MongoDatasetStore
+
 INTRADAY_BUCKET = "1min"
-DAILY_IV_RANK_LOOKBACK = 20
+DAILY_IV_RANK_LOOKBACK = 60
 _SKEW_CAPTURE_WINDOWS_ET = [
     ("09:30", "09:40"),
     ("12:25", "12:35"),
@@ -36,6 +38,18 @@ def _json_safe(value):
     if isinstance(value, (list, dict)):
         return json.dumps(value, default=str)
     return value
+
+
+def _mongo_store() -> MongoDatasetStore | None:
+    try:
+        return MongoDatasetStore.from_env()
+    except Exception as exc:
+        print(f"[mongo] disabled: {exc}", flush=True)
+        return None
+
+
+def _warn_mongo_write(exc: Exception) -> None:
+    print(f"[mongo] write skipped: {exc}", flush=True)
 
 
 def _upsert_parquet(path: Path, rows: pd.DataFrame, keys: list[str], write_csv: bool = True) -> None:
@@ -299,6 +313,12 @@ def update_daily_tenor_iv(output_dir: Path, *, ticker: str, trading_date: str, t
         conn.commit()
     finally:
         conn.close()
+    mongo = _mongo_store()
+    if mongo is not None:
+        try:
+            mongo.update_daily_tenor_iv(ticker=ticker, trading_date=trading_date, tenor_atm_iv=tenor_atm_iv)
+        except Exception as exc:
+            _warn_mongo_write(exc)
     return db_path
 
 
@@ -392,6 +412,21 @@ def append_market_dataset(
     paths["session_levels_daily"] = upsert_daily_session_level(
         output_dir, ticker=ticker, trading_date=trading_date, level_row=level_row
     )
+    mongo = _mongo_store()
+    if mongo is not None:
+        try:
+            mongo.upsert_market_dataset(
+                ticker=ticker,
+                trading_date=trading_date,
+                expiry_scope=expiry_scope,
+                summary=summary_dict,
+                by_strike=strike_rows,
+                intraday_rows=intraday_rows,
+                raw_frames=raw_frames,
+                level_row=level_row,
+            )
+        except Exception as exc:
+            _warn_mongo_write(exc)
     if tenor_atm_iv:
         tenor_path = update_daily_tenor_iv(
             output_dir, ticker=ticker, trading_date=trading_date, tenor_atm_iv=tenor_atm_iv
@@ -444,6 +479,18 @@ def append_history_store(
     strike_rows.insert(0, "ticker", ticker)
     by_strike_history = history_dir / f"{ticker}_{expiry}_by_strike_history.parquet"
     _upsert_parquet(by_strike_history, strike_rows, ["snapshot_utc", "ticker", "expiry", "strike"], write_csv=False)
+    mongo = _mongo_store()
+    if mongo is not None:
+        try:
+            mongo.upsert_snapshot(
+                ticker=ticker,
+                expiry=expiry,
+                trading_date=snapshot_date,
+                summary=summary_dict,
+                reconciliation=reconciliation_dict,
+            )
+        except Exception as exc:
+            _warn_mongo_write(exc)
 
     return {"snapshots": summary_history, "by_strike_history": by_strike_history}
 
