@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
+
+# Cloud hosts (Render, Heroku, etc.) share IPs that Yahoo Finance's
+# anti-bot layer intermittently rate-limits, causing `ticker.options` to
+# come back empty even though the same request works from a residential
+# IP. A fresh yf.Ticker (new session/crumb) usually clears this within a
+# couple of retries, so we retry instead of failing the whole snapshot.
+EXPIRATIONS_RETRY_ATTEMPTS = 4
+EXPIRATIONS_RETRY_BACKOFF_SECONDS = 2.0
 
 
 # Yahoo Finance index notation.
@@ -94,12 +103,40 @@ def clean_chain(chain: pd.DataFrame, option_type: str, expiry: str) -> pd.DataFr
     return data
 
 
+def _fetch_expirations_with_retry(yf, ticker: str):
+    """Return (ticker_obj, expirations) for `ticker`, retrying on empty results.
+
+    Cloud hosts share IPs that Yahoo's anti-bot layer intermittently
+    rate-limits, which surfaces as an empty `ticker.options` rather than an
+    HTTP error. A fresh yf.Ticker (new session/crumb) on retry clears this
+    most of the time, so we retry a few times with backoff before giving up.
+    """
+    last_error: Exception | None = None
+    for attempt in range(EXPIRATIONS_RETRY_ATTEMPTS):
+        try:
+            ticker_obj = yf.Ticker(_yahoo_symbol(ticker))
+            expirations = list(ticker_obj.options)
+        except Exception as exc:  # network hiccup, crumb fetch failure, etc.
+            last_error = exc
+            expirations = []
+        if expirations:
+            return ticker_obj, expirations
+        if attempt < EXPIRATIONS_RETRY_ATTEMPTS - 1:
+            time.sleep(EXPIRATIONS_RETRY_BACKOFF_SECONDS * (attempt + 1))
+    if last_error is not None:
+        raise RuntimeError(
+            f"No Yahoo option expirations returned for {ticker.upper()} "
+            f"after {EXPIRATIONS_RETRY_ATTEMPTS} attempts: {last_error}"
+        ) from last_error
+    raise RuntimeError(
+        f"No Yahoo option expirations returned for {ticker.upper()} "
+        f"after {EXPIRATIONS_RETRY_ATTEMPTS} attempts."
+    )
+
+
 def fetch_chain(ticker: str, expiry: str | None = None) -> YahooChain:
     yf = import_yfinance()
-    ticker_obj = yf.Ticker(_yahoo_symbol(ticker))
-    expirations = list(ticker_obj.options)
-    if not expirations:
-        raise RuntimeError(f"No Yahoo option expirations returned for {ticker.upper()}.")
+    ticker_obj, expirations = _fetch_expirations_with_retry(yf, ticker)
 
     resolved_expiry = expiry or expirations[0]
     if resolved_expiry not in expirations:
@@ -129,10 +166,7 @@ def fetch_multi_chain(ticker: str, horizon_days: int = 45) -> YahooChain:
     horizon, so the result is never empty.
     """
     yf = import_yfinance()
-    ticker_obj = yf.Ticker(_yahoo_symbol(ticker))
-    expirations = list(ticker_obj.options)
-    if not expirations:
-        raise RuntimeError(f"No Yahoo option expirations returned for {ticker.upper()}.")
+    ticker_obj, expirations = _fetch_expirations_with_retry(yf, ticker)
 
     cutoff = date.today() + timedelta(days=horizon_days)
     included = [exp for exp in expirations if datetime.strptime(exp, "%Y-%m-%d").date() <= cutoff]
