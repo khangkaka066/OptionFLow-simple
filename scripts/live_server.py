@@ -1251,13 +1251,30 @@ def collector(args: argparse.Namespace, state: LiveState, snapshot_service: Snap
         next_fetch_dt = datetime.now() + timedelta(seconds=args.interval_seconds)
         with state.lock:
             state.next_fetch = next_fetch_dt.isoformat()
+            state.data_status["collector"] = {
+                "stage": "starting_snapshot",
+                "next_fetch": state.next_fetch,
+                "pull_count": pull_count + 1,
+            }
 
         pull_count += 1
         fetch_tenor = env_flag("LIVE_ENABLE_TENOR_REFRESH", False) and pull_count % TENOR_REFRESH_EVERY_N_PULLS == 0
         snapshot_started = time.perf_counter()
+        with state.lock:
+            state.data_status["collector"] = {
+                "stage": "running_snapshot",
+                "started_at": datetime.now().isoformat(),
+                "pull_count": pull_count,
+                "fetch_tenor": fetch_tenor,
+            }
         result = run_snapshot(args, fetch_tenor=fetch_tenor)
         snapshot_ms = round((time.perf_counter() - snapshot_started) * 1000, 1)
         with state.lock:
+            state.data_status["collector"] = {
+                "stage": "snapshot_finished",
+                "finished_at": datetime.now().isoformat(),
+                "pull_count": pull_count,
+            }
             state.data_status["snapshot"] = {
                 "ms": snapshot_ms,
                 "fetch_tenor": fetch_tenor,
@@ -1323,9 +1340,34 @@ def collector(args: argparse.Namespace, state: LiveState, snapshot_service: Snap
                     state.failures += 1
                     state.latest_error = str(exc)
         next_run += args.interval_seconds
+        with state.lock:
+            state.data_status["collector"] = {
+                "stage": "sleeping",
+                "next_run_in_seconds": max(0.0, round(next_run - time.monotonic(), 1)),
+                "pull_count": pull_count,
+            }
     with state.lock:
         state.running = False
         state.next_fetch = None
+
+
+def guarded_collector(
+    args: argparse.Namespace,
+    state: LiveState,
+    snapshot_service: SnapshotService | None = None,
+) -> None:
+    try:
+        collector(args, state, snapshot_service)
+    except BaseException as exc:
+        with state.lock:
+            state.failures += 1
+            state.running = False
+            state.latest_error = f"collector crashed: {type(exc).__name__}: {exc}"
+            state.data_status["collector"] = {
+                "stage": "crashed",
+                "error": state.latest_error,
+            }
+        raise
 
 
 def levels_collector(
@@ -1449,7 +1491,7 @@ def main() -> None:
         cors_allowed_origin=os.getenv("LIVE_API_CORS_ORIGIN", "*"),
         greek_surface_enabled=os.getenv("DISABLE_GREEK_SURFACE", "0") != "1",
     )
-    worker = threading.Thread(target=collector, args=(args, state, snapshot_service), daemon=True)
+    worker = threading.Thread(target=guarded_collector, args=(args, state, snapshot_service), daemon=True)
     worker.start()
     if state.secondary_ticker:
         levels_worker = threading.Thread(
