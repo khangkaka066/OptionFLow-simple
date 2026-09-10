@@ -65,6 +65,11 @@ IV_RANK_HISTORY_PATH = DATA_ROOT / "iv_rank_history.csv"
 INTRADAY_CACHE_ROOT = PROJECT_ROOT / "data" / "cache" / "intraday"
 SNAPSHOT_CACHE_ROOT = PROJECT_ROOT / "data" / "cache" / "snapshot"
 GITHUB_SYNC_STATUS_PATH = PROJECT_ROOT / "data" / "github_sync_status.json"
+# daily_qqq_snapshot.py is spawned as a subprocess every interval; without a
+# timeout, a network hang inside it (e.g. Yahoo silently blackholing a
+# blocked cloud IP instead of erroring) blocks the collector loop forever —
+# next_fetch freezes and successes/failures never increment.
+SNAPSHOT_SUBPROCESS_TIMEOUT_SECONDS = 90
 
 
 def skew_tenors_payload(ticker: str, spot: float, effective_day: str) -> list[dict]:
@@ -1129,7 +1134,7 @@ def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subp
             cmd += ["--expiry", args.expiry]
         if fetch_tenor:
             cmd += ["--all-expiries", "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS)]
-        return subprocess.run(cmd, cwd=PROJECT_ROOT, check=False, text=True, capture_output=True)
+        return _run_snapshot_subprocess(cmd)
 
     cmd = [
         sys.executable,
@@ -1154,7 +1159,25 @@ def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subp
         cmd += ["--expiry", args.expiry]
     if fetch_tenor:
         cmd += ["--all-expiries", "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS)]
-    return subprocess.run(cmd, cwd=PROJECT_ROOT, check=False, text=True, capture_output=True)
+    return _run_snapshot_subprocess(cmd)
+
+
+def _run_snapshot_subprocess(cmd: list[str]) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            cmd,
+            cwd=PROJECT_ROOT,
+            check=False,
+            text=True,
+            capture_output=True,
+            timeout=SNAPSHOT_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stderr = (exc.stderr or "") + (
+            f"\nsnapshot subprocess killed after exceeding "
+            f"{SNAPSHOT_SUBPROCESS_TIMEOUT_SECONDS}s timeout"
+        )
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout=exc.stdout or "", stderr=stderr)
 
 
 def subprocess_error_tail(result: subprocess.CompletedProcess, *, max_lines: int = 8) -> str:
