@@ -127,6 +127,27 @@ def yahoo_raw_to_chain(raw: dict) -> yahoo.YahooChain:
     )
 
 
+def empty_yahoo_chain(
+    ticker: str, expiry: str, available_expirations: list[str], spot: float
+) -> yahoo.YahooChain:
+    """Placeholder YahooChain used when Yahoo is unreachable.
+
+    Empty calls/puts let reconcile_chain() fall back entirely to CBOE fields
+    via its existing .fillna() logic instead of erroring out.
+    """
+    columns = ["strike", "openInterest", "impliedVolatility", "volume", "bid", "ask", "option_type", "expiry"]
+    empty = pd.DataFrame(columns=columns)
+    return yahoo.YahooChain(
+        ticker=ticker,
+        expiry=expiry,
+        spot=spot,
+        calls=empty.copy(),
+        puts=empty.copy(),
+        available_expirations=available_expirations,
+        included_expirations=[expiry],
+    )
+
+
 def print_summary(summary_dict: dict, report_dict: dict) -> None:
     print(f"\n=== {summary_dict['ticker']} {summary_dict['expiry']} ===")
     print(f"Spot (yahoo): {summary_dict['spot']:.2f}  T(years): {summary_dict['years_to_expiry']:.5f}")
@@ -142,7 +163,8 @@ def print_summary(summary_dict: dict, report_dict: dict) -> None:
         "Reconciliation: "
         f"matched={report_dict['matched_both_sources']} cboe_only={report_dict['cboe_only']} "
         f"yahoo_only={report_dict['yahoo_only']} iv_flagged={report_dict['iv_flagged_count']} "
-        f"oi_fallback={report_dict['oi_fallback_count']} spot_flagged={report_dict['spot_flagged']}"
+        f"oi_fallback={report_dict['oi_fallback_count']} spot_flagged={report_dict['spot_flagged']} "
+        f"yahoo_available={report_dict['yahoo_available']}"
     )
 
 
@@ -154,6 +176,7 @@ def main() -> None:
     ts = datetime.now().strftime("%H%M%S")
 
     included_expiries: list[str] | None = None
+    yahoo_available = True
 
     if args.all_expiries:
         yahoo_data = yahoo.fetch_multi_chain(ticker_symbol, horizon_days=args.expiry_horizon_days)
@@ -173,9 +196,24 @@ def main() -> None:
             yahoo_data.spot = yahoo.get_spot(yf.Ticker(yahoo._yahoo_symbol(ticker_symbol)))
         expiry = args.expiry
     else:
-        yahoo_data = yahoo.fetch_chain(ticker_symbol, args.expiry)
-        expiry = yahoo_data.expiry
-        cboe_data = cboe.fetch_chain(ticker_symbol, expiry)
+        cboe_raw = cboe.fetch_raw(ticker_symbol)
+        cboe_all = cboe.parse_chain(cboe_raw, ticker_symbol, expiry=None)
+        cboe_expiries = sorted(cboe_all.chain["expiry"].dropna().unique().tolist())
+
+        yahoo_available = True
+        try:
+            yahoo_data = yahoo.fetch_chain(ticker_symbol, args.expiry)
+            expiry = yahoo_data.expiry
+        except RuntimeError as exc:
+            if not cboe_expiries or not cboe_all.underlying_price:
+                raise
+            yahoo_available = False
+            print(f"WARNING: Yahoo unavailable ({exc}); falling back to CBOE-only data.")
+            expiry = args.expiry or cboe_expiries[0]
+            yahoo_data = empty_yahoo_chain(ticker_symbol, expiry, cboe_expiries, cboe_all.underlying_price)
+
+        cboe_data = cboe_all
+        cboe_data.chain = cboe_data.chain[cboe_data.chain["expiry"] == expiry]
 
     effective_day = yahoo.effective_snapshot_day(snapshot_day, yahoo_data.calls, yahoo_data.puts)
 
@@ -228,6 +266,7 @@ def main() -> None:
     )
     summary_dict = asdict(summary)
     report_dict = report.as_dict()
+    report_dict["yahoo_available"] = yahoo_available
 
     raw_paths = storage.save_raw(output_dir, ticker_symbol, expiry, ts, cboe_data.raw, yahoo_chain_to_raw(yahoo_data))
     raw_frames = [
