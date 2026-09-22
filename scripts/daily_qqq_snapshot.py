@@ -188,6 +188,7 @@ def main() -> None:
     included_expiries: list[str] | None = None
     yahoo_available = True
     if_data = None
+    if_live_spot = None
     if_ow_chain = None
     if_ow_report = None
     ow_raw = None
@@ -212,6 +213,10 @@ def main() -> None:
     else:
         # Primary chain: InsiderFinance (structural/OI/IV/bid/ask) + Optionwatch (bid/ask size).
         if_data = insiderfinance.fetch_chain(ticker_symbol)
+        try:
+            if_live_spot = insiderfinance.fetch_spot(ticker_symbol)
+        except Exception:
+            if_live_spot = None
         if_future_expiries = sorted(
             e for e in if_data.chain["expiry"].dropna().unique().tolist() if e >= date.today().isoformat()
         )
@@ -309,10 +314,14 @@ def main() -> None:
         report_dict["yahoo_available"] = yahoo_available
         report_dict["chain_source"] = "cboe+yahoo"
 
-    # Spot for greeks: InsiderFinance's own spot is authoritative when available
-    # (default/live path only); Yahoo spot is the fallback for --all-expiries/
-    # --input-dir modes and for the rare case InsiderFinance omits spot.
-    if if_data is not None and if_data.spot:
+    # Spot for greeks: InsiderFinance's ticker-details API is authoritative when
+    # available (near-real-time, updates every request); the gamma-exposure page's
+    # own spot field is a cached/periodic snapshot and is only a fallback within
+    # InsiderFinance, ahead of Yahoo spot for --all-expiries/--input-dir modes.
+    if if_live_spot:
+        spot_for_greeks = if_live_spot
+        report_dict["spot_source"] = "insiderfinance_live"
+    elif if_data is not None and if_data.spot:
         spot_for_greeks = if_data.spot
         report_dict["spot_source"] = "insiderfinance"
     else:
