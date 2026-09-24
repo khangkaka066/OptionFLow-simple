@@ -360,6 +360,10 @@ def main() -> None:
             reconciled["volume_source"] = "cboe_yahoo_fallback"
             reconciled["volume"] = reconciled["cy_volume"].fillna(0.0)
         reconciled = reconciled.drop(columns=["cy_volume"])
+        # Backfill invalid/missing InsiderFinance IV and bid/ask from CBOE — the
+        # same fallback used by the --source insiderfinance branch, reusing the
+        # cboe_data.chain already fetched above for volume.
+        reconciled = cboe.supplement_quotes(reconciled, cboe_data.chain)
         report_dict = volume_report.as_dict()
         report_dict["yahoo_available"] = yahoo_available
         report_dict["chain_source"] = "insiderfinance+optionwatch"
@@ -368,6 +372,8 @@ def main() -> None:
         report_dict["volume_cboe_yahoo_fallback_count"] = int(
             (reconciled["volume_source"] == "cboe_yahoo_fallback").sum()
         )
+        report_dict["iv_cboe_count"] = int((reconciled["iv_source"] == "cboe").sum())
+        report_dict["quote_cboe_count"] = int((reconciled["quote_source"] == "cboe").sum())
         if pf_report is not None:
             report_dict["pf_matched"] = pf_report["pf_matched"]
             report_dict["pf_total_pineify_rows"] = pf_report["pf_total_pineify_rows"]
@@ -392,8 +398,7 @@ def main() -> None:
         report_dict["spot_source"] = "yahoo"
 
     chain = compute_greeks(reconciled, spot_for_greeks, years_by_expiry, args.rate)
-    if args.source == "insiderfinance":
-        report_dict["iv_unavailable_count"] = int(chain["impliedVolatility"].isna().sum())
+    report_dict["iv_unavailable_count"] = int(chain["impliedVolatility"].isna().sum())
     by_strike = aggregate_by_strike(chain)
 
     tenor_atm_iv: dict[str, float] | None = None
