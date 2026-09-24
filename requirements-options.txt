@@ -9,3 +9,4 @@ duckdb
 python-dotenv
 pymongo
 certifi
+playwright

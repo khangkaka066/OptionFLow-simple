@@ -103,3 +103,49 @@ def parse_chain(raw: dict, ticker: str, expiry: str | None = None) -> CboeChain:
 def fetch_chain(ticker: str, expiry: str | None = None, timeout: float = 15.0) -> CboeChain:
     raw = fetch_raw(ticker, timeout=timeout)
     return parse_chain(raw, ticker, expiry)
+
+
+def supplement_volume(primary: pd.DataFrame, cboe_chain: pd.DataFrame) -> pd.DataFrame:
+    """Attach volume without changing the primary provider's contract universe or quotes.
+
+    Index roots with different settlement conventions can share these keys.
+    Without a contract root in the primary data, ambiguous matches stay missing.
+    """
+    keys = ["strike", "option_type", "expiry"]
+    volumes = cboe_chain[keys + ["cboe_volume"]].copy()
+    volumes = volumes.loc[~volumes.duplicated(keys, keep=False)]
+    values = pd.to_numeric(volumes["cboe_volume"], errors="coerce")
+    volumes["cboe_volume"] = values.where((values >= 0) & (values < float("inf")))
+    merged = primary.drop(columns=["volume", "volume_source"], errors="ignore").merge(
+        volumes, on=keys, how="left", validate="many_to_one", sort=False,
+    )
+    merged["volume"] = merged.pop("cboe_volume")
+    merged["volume_source"] = merged["volume"].notna().map({True: "cboe", False: "unavailable"})
+    return merged
+
+
+def supplement_quotes(primary: pd.DataFrame, cboe_chain: pd.DataFrame) -> pd.DataFrame:
+    """Fill invalid IV and quote pairs; keep InsiderFinance OI, spot and good quotes."""
+    keys = ["strike", "option_type", "expiry"]
+    quotes = cboe_chain[keys + ["cboe_iv", "cboe_bid", "cboe_ask"]].copy()
+    quotes = quotes.loc[~quotes.duplicated(keys, keep=False)]
+    merged = primary.merge(quotes, on=keys, how="left", validate="many_to_one", sort=False)
+    for column in ["impliedVolatility", "bid", "ask", "cboe_iv", "cboe_bid", "cboe_ask"]:
+        merged[column] = pd.to_numeric(merged[column], errors="coerce")
+    primary_iv_ok = merged["impliedVolatility"].between(0.01, 5.0)
+    fallback_iv_ok = merged["cboe_iv"].between(0.01, 5.0)
+    use_iv = ~primary_iv_ok & fallback_iv_ok
+    merged["iv_source"] = primary_iv_ok.map({True: "insiderfinance", False: "unavailable"})
+    merged.loc[use_iv, "impliedVolatility"] = merged.loc[use_iv, "cboe_iv"]
+    merged.loc[use_iv, "iv_source"] = "cboe"
+
+    def valid_quotes(bid: pd.Series, ask: pd.Series) -> pd.Series:
+        return (bid > 0) & (ask >= bid) & (ask < float("inf"))
+
+    primary_quotes_ok = valid_quotes(merged["bid"], merged["ask"])
+    use_quotes = ~primary_quotes_ok & valid_quotes(merged["cboe_bid"], merged["cboe_ask"])
+    merged["quote_source"] = primary_quotes_ok.map({True: "insiderfinance", False: "unavailable"})
+    # Replace the pair together: never synthesize a spread from two providers.
+    merged.loc[use_quotes, ["bid", "ask"]] = merged.loc[use_quotes, ["cboe_bid", "cboe_ask"]].to_numpy()
+    merged.loc[use_quotes, "quote_source"] = "cboe"
+    return merged.drop(columns=["cboe_iv", "cboe_bid", "cboe_ask"])

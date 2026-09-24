@@ -383,27 +383,47 @@ python3 scripts/replay.py --ticker QQQ --expiry 2026-08-17
 
 ## 11. Chạy Tự Động Bằng GitHub Actions
 
-Repo có sẵn workflow:
+Workflow `.github/workflows/eod-gex-dashboard.yml` lấy option chain và spot EOD
+trực tiếp từ InsiderFinance cho QQQ, NDX và QQQ toàn bộ kỳ hạn.
+Nguồn chính là API công khai `https://cf.insiderfinance.io/v1/gex/{ticker}`
+được chính trang gamma-exposure sử dụng; không cần API key. Nếu API lỗi,
+script retry rồi dùng HTML làm fallback, ghi `fetch_source: html_fallback`
+vì HTML có thể chứa ít hợp đồng hơn API.
+Volume bổ sung từ CBOE, ghép theo ticker, kỳ hạn, strike và call/put;
+OI và spot giữ từ InsiderFinance. IV không hợp lệ được bổ sung từ CBOE;
+cặp bid/ask không hợp lệ cũng được thay cả cặp từ CBOE, giữ nguyên quote
+hợp lệ của InsiderFinance. Nguồn từng trường được lưu trong dữ liệu chain.
+Hợp đồng không khớp,
+volume không hợp lệ hoặc khớp nhiều hợp đồng CBOE được đánh dấu `unavailable`.
+Nếu CBOE lỗi, pipeline tiếp tục với chain InsiderFinance và báo thiếu volume.
+Summary/reconciliation lưu `volume_source`, số hợp đồng có/thiếu volume và
+`volume_timestamp`, `iv_cboe_count`, `quote_cboe_count`, `iv_unavailable_count`;
+volume thiếu vẫn có thể hiển thị tổng 0 khi aggregate.
+Timestamp và cờ stale của InsiderFinance được lưu riêng trong summary.
+Ngày phiên dùng timestamp của nguồn theo New York, tránh lệch sang hôm sau
+khi runner đặt múi giờ Việt Nam.
 
-```text
-.github/workflows/daily-gex-dashboard.yml
-```
+Lịch hiện tại: thứ Hai–thứ Sáu lúc `20:23 UTC` (`03:23 Việt Nam` hôm sau).
+Tương ứng `16:23 New York` vào mùa hè; mùa đông là `15:23`, nên cần điều
+chỉnh lịch nếu muốn tiếp tục lấy sau giờ đóng cửa vào mùa đông.
 
-Workflow này chạy tự động mỗi thứ Hai đến thứ Sáu lúc:
-
-```text
-20:25 Việt Nam = 13:25 UTC
-```
-
-Khi Mỹ đang dùng giờ mùa hè, thời điểm này là khoảng `09:25 New York`, phù hợp để lấy dữ liệu sát trước open `09:30`. Khi Mỹ dùng giờ mùa đông, `20:25 Việt Nam` sẽ là `08:25 New York`; nếu muốn sát open mùa đông thì đổi cron thành `25 14 * * 1-5` để chạy `21:25 Việt Nam`.
-
-Workflow sẽ chạy:
+Chạy thủ công tương đương:
 
 ```bash
-python scripts/run_gex_dashboard.py --ticker QQQ --no-open
+python scripts/run_gex_dashboard.py --source insiderfinance --ticker QQQ --all-expiries --expiry-horizon-days 0 --no-interactive --no-open
+python scripts/run_gex_dashboard.py --source insiderfinance --ticker QQQ --no-open
+python scripts/run_gex_dashboard.py --source insiderfinance --ticker NDX --futures-ticker NQ1! --no-interactive --no-open
 ```
 
-Kết quả không được commit ngược vào repo. GitHub sẽ lưu thành artifact trong tab **Actions** gồm HTML dashboard, levels TXT, summary JSON, reconciliation JSON và Parquet.
+`--source insiderfinance` áp dụng cho dữ liệu options và spot; giá NQ để quy
+đổi basis vẫn dùng nguồn futures hiện có. Không truyền `--source` thì lệnh
+thủ công giữ pipeline mặc định. Chế độ này không hỗ trợ `--input-dir`.
+Với InsiderFinance, horizon `0` lấy toàn bộ kỳ hạn; số dương giới hạn số ngày.
+Skew/Surface đọc chain đã bổ sung từ `raw_chain.parquet`, giữ riêng từng kỳ hạn.
+Đổi nguồn không backfill lịch sử intraday/IV Rank đã thiếu.
+
+Workflow commit lịch sử EOD, lưu artifact dashboard và deploy GitHub Pages.
+Có thể chạy ngay bằng **Actions → Run workflow** sau khi push thay đổi.
 
 ### Upload Lên GitHub Lần Đầu
 
@@ -418,7 +438,7 @@ git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
 git push -u origin main
 ```
 
-Sau khi push xong, vào GitHub repo → tab **Actions** → bật workflow nếu GitHub hỏi xác nhận. Bạn cũng có thể bấm **Run workflow** để chạy thủ công ngay, không cần chờ tới 20:25.
+Sau khi push xong, vào GitHub repo → tab **Actions** → bật workflow nếu GitHub hỏi xác nhận. Bạn cũng có thể bấm **Run workflow** để chạy thủ công ngay, không cần chờ lịch tự động.
 
 ## 12. Lưu Hiện Tại + Lịch Sử Gọn
 

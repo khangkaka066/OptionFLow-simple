@@ -815,6 +815,20 @@ def rows_for_history_snapshot(
         "put_iv",
         "call_mid",
         "put_mid",
+        "call_bid_size",
+        "call_ask_size",
+        "put_bid_size",
+        "put_ask_size",
+        "call_ow_bid",
+        "call_ow_ask",
+        "call_ow_last",
+        "put_ow_bid",
+        "put_ow_ask",
+        "put_ow_last",
+        "call_pf_volume",
+        "call_pf_oi",
+        "put_pf_volume",
+        "put_pf_oi",
     ]
     for col in keep_cols:
         if col not in chart_rows.columns:
@@ -893,6 +907,20 @@ def chart_payload_from_summary_path(
         "put_iv",
         "call_mid",
         "put_mid",
+        "call_bid_size",
+        "call_ask_size",
+        "put_bid_size",
+        "put_ask_size",
+        "call_ow_bid",
+        "call_ow_ask",
+        "call_ow_last",
+        "put_ow_bid",
+        "put_ow_ask",
+        "put_ow_last",
+        "call_pf_volume",
+        "call_pf_oi",
+        "put_pf_volume",
+        "put_pf_oi",
     ]
     for col in keep_cols:
         if col not in chart_rows.columns:
@@ -1173,11 +1201,19 @@ def _run_snapshot_subprocess(cmd: list[str]) -> subprocess.CompletedProcess:
             timeout=SNAPSHOT_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as exc:
-        stderr = (exc.stderr or "") + (
+        # TimeoutExpired.stdout/stderr are raw bytes even with text=True, since the
+        # timeout fires before subprocess.run's text-decoding step runs.
+        partial_stdout = exc.stdout
+        if isinstance(partial_stdout, bytes):
+            partial_stdout = partial_stdout.decode("utf-8", errors="replace")
+        partial_stderr = exc.stderr
+        if isinstance(partial_stderr, bytes):
+            partial_stderr = partial_stderr.decode("utf-8", errors="replace")
+        stderr = (partial_stderr or "") + (
             f"\nsnapshot subprocess killed after exceeding "
             f"{SNAPSHOT_SUBPROCESS_TIMEOUT_SECONDS}s timeout"
         )
-        return subprocess.CompletedProcess(cmd, returncode=1, stdout=exc.stdout or "", stderr=stderr)
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout=partial_stdout or "", stderr=stderr)
 
 
 def subprocess_error_tail(result: subprocess.CompletedProcess, *, max_lines: int = 8) -> str:

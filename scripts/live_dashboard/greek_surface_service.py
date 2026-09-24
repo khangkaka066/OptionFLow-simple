@@ -175,6 +175,10 @@ class GreekSurfaceService:
             return None
         try:
             raw = pd.read_parquet(raw_path, columns=RAW_CHAIN_COLUMNS)
+            try:
+                raw["source_ts"] = pd.read_parquet(raw_path, columns=["source_ts"])["source_ts"]
+            except (KeyError, ValueError):
+                pass  # Older normalized files did not carry the source timestamp.
         except Exception:
             return None
         raw["_capture_ts"] = pd.to_datetime(raw["capture_ts"], errors="coerce", utc=True)
@@ -192,12 +196,23 @@ class GreekSurfaceService:
         if selected.empty:
             return None
 
-        # Dedupe overlapping sources (yahoo preferred over cboe) per contract, same
-        # rule used for the tenor curves in render_gex_interactive.py.
+        # Prefer the reconciled InsiderFinance chain; a volume-only supplement
+        # must not replace its IV/OI. Preserve legacy Yahoo > CBOE ordering.
         selected = selected.copy()
-        selected["source_rank"] = np.where(selected["source"] == "yahoo", 0, 1)
+        selected["source_rank"] = selected["source"].map({
+            "insiderfinance_reconciled": 0, "insiderfinance": 1,
+            "insiderfinance_optionwatch": 2, "yahoo": 3, "cboe": 4,
+        }).fillna(5)
         selected = selected.sort_values(["expiry", "strike", "option_type", "source_rank"])
         selected = selected.drop_duplicates(subset=["expiry", "strike", "option_type"], keep="first")
+        source_time = None
+        if "source_ts" in selected:
+            source_times = pd.to_datetime(
+                selected.loc[selected["source"] == "insiderfinance_reconciled", "source_ts"],
+                errors="coerce", utc=True,
+            ).dropna()
+            if not source_times.empty:
+                source_time = source_times.max()
         selected = selected.drop(columns=["source_rank", "source"])
 
         selected = selected.rename(columns={"open_interest": "openInterest", "iv": "impliedVolatility"})
@@ -214,7 +229,7 @@ class GreekSurfaceService:
             return None
 
         snapshot_utc = pd.Timestamp(capture_ts).tz_convert("UTC")
-        effective_day = snapshot_utc.tz_convert(self.data_store.ny_tz).date()
+        effective_day = (source_time if source_time is not None else snapshot_utc).tz_convert(self.data_store.ny_tz).date()
         expiries = sorted(selected["expiry"].dropna().astype(str).unique())
         years_by_expiry = {}
         for expiry in expiries:

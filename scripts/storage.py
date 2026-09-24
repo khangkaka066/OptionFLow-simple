@@ -101,7 +101,26 @@ def normalize_raw_chain(
     data["source_ts"] = source_ts or capture_ts
     data["ticker"] = ticker
     data["spot"] = spot
-    for col in ["expiry", "strike", "option_type", "bid", "ask", "last", "volume", "open_interest", "iv"]:
+    for col in [
+        "expiry",
+        "strike",
+        "option_type",
+        "bid",
+        "ask",
+        "last",
+        "volume",
+        "open_interest",
+        "iv",
+        "bid_size",
+        "ask_size",
+        "ow_bid",
+        "ow_ask",
+        "ow_last",
+        "ow_last_size",
+        "ow_last_time",
+        "pf_volume",
+        "pf_oi",
+    ]:
         if col not in data:
             data[col] = None
     columns = [
@@ -118,9 +137,19 @@ def normalize_raw_chain(
         "volume",
         "open_interest",
         "iv",
+        "bid_size",
+        "ask_size",
+        "ow_bid",
+        "ow_ask",
+        "ow_last",
+        "ow_last_size",
+        "ow_last_time",
+        "pf_volume",
+        "pf_oi",
         "spot",
     ]
-    return data.loc[:, columns]
+    provenance = [name for name in ["oi_source", "iv_source", "quote_source", "volume_source"] if name in data]
+    return data.loc[:, columns + provenance]
 
 
 def append_market_table(path: Path, rows: pd.DataFrame, keys: list[str]) -> Path:
@@ -444,7 +473,7 @@ def append_history_store(
     by_strike,
     summary_dict: dict,
     reconciliation_dict: dict,
-    raw_paths: tuple[Path, Path] | None = None,
+    raw_paths: tuple[Path, ...] | None = None,
     snapshot_paths: dict[str, Path] | None = None,
 ) -> dict[str, Path]:
     """Upsert a normalized, backtest-friendly history store for this day/expiry."""
@@ -460,8 +489,9 @@ def append_history_store(
         }
     )
     if raw_paths:
-        summary_row["raw_cboe_path"] = str(raw_paths[0].relative_to(output_dir))
-        summary_row["raw_yahoo_path"] = str(raw_paths[1].relative_to(output_dir))
+        for path in raw_paths:
+            source = path.stem.rsplit("_", 1)[-1]
+            summary_row[f"raw_{source}_path"] = str(path.relative_to(output_dir))
     if snapshot_paths:
         summary_row["by_strike_path"] = str(snapshot_paths["by_strike"].relative_to(output_dir))
         summary_row["summary_path"] = str(snapshot_paths["summary"].relative_to(output_dir))
@@ -495,7 +525,7 @@ def append_history_store(
     return {"snapshots": summary_history, "by_strike_history": by_strike_history}
 
 
-def delete_raw(raw_paths: tuple[Path, Path] | None) -> list[Path]:
+def delete_raw(raw_paths: tuple[Path, ...] | None) -> list[Path]:
     if not raw_paths:
         return []
     deleted = []
@@ -506,14 +536,23 @@ def delete_raw(raw_paths: tuple[Path, Path] | None) -> list[Path]:
     return deleted
 
 
-def save_raw(output_dir: Path, ticker: str, expiry: str, ts: str, cboe_raw: dict, yahoo_raw: dict) -> tuple[Path, Path]:
+def save_raw(
+    output_dir: Path,
+    ticker: str,
+    expiry: str,
+    ts: str,
+    source_a_raw: dict,
+    source_b_raw: dict,
+    source_a_name: str = "cboe",
+    source_b_name: str = "yahoo",
+) -> tuple[Path, Path]:
     raw_dir = output_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
-    cboe_path = raw_dir / f"{ticker}_{expiry}_{ts}_cboe.json"
-    yahoo_path = raw_dir / f"{ticker}_{expiry}_{ts}_yahoo.json"
-    cboe_path.write_text(json.dumps(cboe_raw, indent=2, default=str), encoding="utf-8")
-    yahoo_path.write_text(json.dumps(yahoo_raw, indent=2, default=str), encoding="utf-8")
-    return cboe_path, yahoo_path
+    source_a_path = raw_dir / f"{ticker}_{expiry}_{ts}_{source_a_name}.json"
+    source_b_path = raw_dir / f"{ticker}_{expiry}_{ts}_{source_b_name}.json"
+    source_a_path.write_text(json.dumps(source_a_raw, indent=2, default=str), encoding="utf-8")
+    source_b_path.write_text(json.dumps(source_b_raw, indent=2, default=str), encoding="utf-8")
+    return source_a_path, source_b_path
 
 
 def save_snapshot(

@@ -33,9 +33,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--ticker", default="QQQ", help="Ticker symbol, default QQQ.")
     parser.add_argument(
+        "--source", choices=["auto", "insiderfinance"], default="auto",
+        help="Use the existing pipeline or InsiderFinance chain/spot with CBOE volume and IV/quote supplements.",
+    )
+    parser.add_argument(
         "--expiry",
         default=None,
-        help="Expiration date YYYY-MM-DD. If omitted, Yahoo's first available expiry is used.",
+        help="Expiration date YYYY-MM-DD. If omitted, the source's first available expiry is used.",
     )
     parser.add_argument(
         "--snapshot-date",
@@ -120,7 +124,7 @@ def parse_args() -> argparse.Namespace:
         "--expiry-horizon-days",
         type=int,
         default=45,
-        help="With --all-expiries, only include expiries within this many calendar days (default 45).",
+        help="With --all-expiries, expiry horizon in days (default 45); 0 includes all for --source insiderfinance.",
     )
     parser.add_argument(
         "--futures-ticker",
@@ -196,6 +200,8 @@ def main() -> None:
             "scripts/daily_qqq_snapshot.py",
             "--ticker",
             ticker,
+            "--source",
+            args.source,
             "--snapshot-date",
             snapshot_date,
             "--output-root",

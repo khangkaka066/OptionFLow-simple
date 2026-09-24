@@ -53,17 +53,17 @@ jobs:
       - name: Capture QQQ multi-expiry skew
         id: skew_qqq
         continue-on-error: true
-        run: python scripts/run_gex_dashboard.py --ticker "$TICKER" --all-expiries --expiry-horizon-days 10 --no-interactive --no-open
+        run: python scripts/run_gex_dashboard.py --source insiderfinance --ticker "$TICKER" --all-expiries --expiry-horizon-days 0 --no-interactive --no-open
 
       - name: Build QQQ dashboard
         id: build_qqq
         continue-on-error: true
-        run: python scripts/run_gex_dashboard.py --ticker "$TICKER" --no-open
+        run: python scripts/run_gex_dashboard.py --source insiderfinance --ticker "$TICKER" --no-open
 
       - name: Build NDX dashboard (futures basis vs NQ1!)
         id: build_ndx
         continue-on-error: true
-        run: python scripts/run_gex_dashboard.py --ticker NDX --futures-ticker NQ1! --no-interactive --no-open
+        run: python scripts/run_gex_dashboard.py --source insiderfinance --ticker NDX --futures-ticker NQ1! --no-interactive --no-open
 
       - name: Fail run if every ticker failed to build
         if: steps.build_qqq.outcome != 'success' && steps.build_ndx.outcome != 'success'

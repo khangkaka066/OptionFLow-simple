@@ -569,9 +569,12 @@ def build_tenor_curves(
     if rows.empty:
         return []
 
-    # yahoo IV tends to be the cleaner backsolve on this pipeline; prefer it over
-    # cboe for a given (expiry, strike, option_type) and fall back to cboe otherwise.
-    rows["source_rank"] = np.where(rows["source"] == "yahoo", 0, 1)
+    # Prefer the chain that already includes per-field supplements. Keep Yahoo's
+    # precedence over CBOE when rendering older two-source snapshots.
+    rows["source_rank"] = rows["source"].map({
+        "insiderfinance_reconciled": 0, "insiderfinance": 1,
+        "insiderfinance_optionwatch": 2, "yahoo": 3, "cboe": 4,
+    }).fillna(5)
     rows = rows.sort_values(["expiry", "strike", "option_type", "source_rank"])
     rows = rows.drop_duplicates(subset=["expiry", "strike", "option_type"], keep="first")
 

@@ -144,3 +144,61 @@ def reconcile_chain(
         spot_flagged=spot_flagged,
     )
     return reconciled, report
+
+
+def reconcile_if_ow_chain(if_chain: pd.DataFrame, ow_chain: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Reconcile InsiderFinance (structural/OI/IV/bid/ask) with Optionwatch (bid/ask size).
+
+    InsiderFinance is the authoritative source for contract structure, open
+    interest, implied volatility, and bid/ask price. Optionwatch is used only
+    to supplement bid_size/ask_size and contributes no other fields.
+    """
+    merged = pd.merge(if_chain, ow_chain, on=["strike", "option_type", "expiry"], how="outer", indicator=True)
+
+    reconciled = pd.DataFrame(
+        {
+            "strike": merged["strike"],
+            "option_type": merged["option_type"],
+            "expiry": merged["expiry"],
+            "openInterest": merged["if_oi"],
+            "impliedVolatility": merged["if_iv"],
+            "bid": merged["if_bid"],
+            "ask": merged["if_ask"],
+            "bid_size": merged["ow_bid_size"],
+            "ask_size": merged["ow_ask_size"],
+            "ow_bid": merged["ow_bid_price"],
+            "ow_ask": merged["ow_ask_price"],
+            "ow_last": merged["ow_last_price"],
+            "ow_last_size": merged["ow_last_size"],
+            "ow_last_time": merged["ow_last_time"],
+        }
+    )
+    reconciled = reconciled.sort_values(["option_type", "strike"]).reset_index(drop=True)
+
+    report = {
+        "total_strikes": len(merged),
+        "matched_both_sources": int((merged["_merge"] == "both").sum()),
+        "insiderfinance_only": int((merged["_merge"] == "left_only").sum()),
+        "optionwatch_only": int((merged["_merge"] == "right_only").sum()),
+    }
+    return reconciled, report
+
+
+def reconcile_pineify_chain(chain: pd.DataFrame, pf_chain: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Fold Pineify's `pf_volume`/`pf_oi` onto an existing reconciled chain as a supplement.
+
+    Pineify's page does not expose a clean machine-readable expiry, so the
+    merge key is `(strike, option_type)` only. No existing column in `chain`
+    is touched or overwritten; unmatched Pineify strikes are dropped.
+    """
+    merged = pd.merge(chain, pf_chain, on=["strike", "option_type"], how="left")
+
+    pf_strikes = set(pf_chain[["strike", "option_type"]].itertuples(index=False, name=None))
+    chain_strikes = set(chain[["strike", "option_type"]].itertuples(index=False, name=None))
+
+    report = {
+        "pf_matched": int(merged["pf_volume"].notna().sum()),
+        "pf_total_pineify_rows": len(pf_chain),
+        "pf_unmatched_strikes": len(pf_strikes - chain_strikes),
+    }
+    return merged, report

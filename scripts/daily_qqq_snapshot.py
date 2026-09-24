@@ -12,7 +12,9 @@ Pipeline (default live path): InsiderFinance (structural/OI/IV/bid/ask,
   monitor fallback usage before removing them entirely.
 
 The `--all-expiries` and `--input-dir` modes still run the original
-CBOE+Yahoo-only pipeline unchanged.
+CBOE+Yahoo-only pipeline unless `--source insiderfinance` is selected.
+The explicit InsiderFinance mode supports single and multiple expiries and
+uses InsiderFinance spot/chain, with CBOE volume and missing IV/quote supplements.
 
 This is a personal-research approximation, not a production-grade dealer
 model. See exposure.py for the GEX/DEX convention used.
@@ -25,6 +27,7 @@ import json
 from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -33,8 +36,8 @@ import storage
 from bsm import years_from_override, years_to_expiry
 from cleanup_dead_data import run_cleanup
 from exposure import aggregate_by_strike, build_summary, compute_greeks, nearest_atm_iv
-from reconcile import reconcile_chain, reconcile_if_ow_chain, reconcile_pineify_chain
-from sources import cboe, insiderfinance, optionwatch, pineify, yahoo
+from reconcile import reconcile_chain
+from sources import cboe, insiderfinance, yahoo
 
 DEFAULT_TICKER = "QQQ"
 DEFAULT_RATE = 0.04
@@ -44,13 +47,17 @@ DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "data" / "options"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fetch CBOE+Yahoo reconciled option chain and compute Black-Scholes GEX/DEX levels."
+        description="Fetch an option chain and compute Black-Scholes GEX/DEX levels."
     )
     parser.add_argument("--ticker", default=DEFAULT_TICKER, help="Ticker symbol, default QQQ.")
     parser.add_argument(
+        "--source", choices=["auto", "insiderfinance"], default="auto",
+        help="Use the existing pipeline or InsiderFinance chain/spot with CBOE volume and IV/quote supplements.",
+    )
+    parser.add_argument(
         "--expiry",
         default=None,
-        help="Expiration date YYYY-MM-DD. If omitted, use first available Yahoo expiry.",
+        help="Expiration date YYYY-MM-DD. If omitted, use the source's first available expiry.",
     )
     parser.add_argument("--rate", type=float, default=DEFAULT_RATE, help="Risk-free rate.")
     parser.add_argument("--top", type=int, default=10, help="Number of top GEX/DEX levels to record.")
@@ -89,9 +96,11 @@ def parse_args() -> argparse.Namespace:
         "--expiry-horizon-days",
         type=int,
         default=45,
-        help="With --all-expiries, only include expiries within this many calendar days (default 45).",
+        help="With --all-expiries, expiry horizon in days (default 45); 0 includes all for --source insiderfinance.",
     )
     args = parser.parse_args()
+    if args.source == "insiderfinance" and args.input_dir:
+        raise SystemExit("--source insiderfinance does not support --input-dir.")
     if args.all_expiries and args.expiry:
         raise SystemExit("--all-expiries and --expiry are mutually exclusive.")
     if args.all_expiries and args.input_dir:
@@ -169,6 +178,14 @@ def print_summary(summary_dict: dict, report_dict: dict) -> None:
         f"Call Resistance: {summary_dict['call_resistance']}   Put Support: {summary_dict['put_support']}"
     )
     print(f"Net DEX: {summary_dict['net_dex']:,.0f}   Delta Flip: {summary_dict['delta_flip']}")
+    if report_dict.get("chain_source") == "insiderfinance":
+        print(
+            f"Source: InsiderFinance; contracts={report_dict['total_strikes']}; "
+            f"volume={report_dict['volume_source']} "
+            f"(CBOE matched={report_dict['volume_cboe_count']}, "
+            f"unavailable={report_dict['volume_unavailable_count']})"
+        )
+        return
     print(
         "Reconciliation: "
         f"matched={report_dict['matched_both_sources']} cboe_only={report_dict['cboe_only']} "
@@ -193,7 +210,48 @@ def main() -> None:
     if_ow_report = None
     ow_raw = None
 
-    if args.all_expiries:
+    if args.source == "insiderfinance":
+        if_data = insiderfinance.fetch_chain(ticker_symbol)
+        if if_data.spot is None or not np.isfinite(if_data.spot) or if_data.spot <= 0:
+            raise SystemExit("insiderfinance: missing or invalid snapshot spot")
+        # At the EOD cron Vietnam is already on the following calendar day.
+        effective_day = datetime.now(ZoneInfo("America/New_York")).date()
+        source_timestamp = if_data.raw.get("timestamp")
+        if source_timestamp:
+            effective_day = datetime.fromisoformat(
+                source_timestamp.replace("Z", "+00:00")
+            ).astimezone(ZoneInfo("America/New_York")).date()
+        reconciled, selected_expiries = insiderfinance.snapshot_chain(
+            if_data, effective_day, expiry=args.expiry,
+            all_expiries=args.all_expiries, horizon_days=args.expiry_horizon_days,
+        )
+        expiry = "ALL" if args.all_expiries else selected_expiries[0]
+        included_expiries = selected_expiries if args.all_expiries else None
+        report_dict = {
+            "chain_source": "insiderfinance", "total_strikes": len(reconciled),
+            "volume_source": "unavailable", "yahoo_available": False,
+            "source_timestamp": source_timestamp, "source_is_stale": if_data.raw.get("isStale"),
+            "fetch_source": if_data.raw.get("fetch_source"),
+        }
+        volume_data = None
+        try:
+            volume_data = cboe.fetch_chain(ticker_symbol)
+            supplemented = cboe.supplement_volume(reconciled, volume_data.chain)
+            reconciled = cboe.supplement_quotes(supplemented, volume_data.chain)
+        except Exception as exc:
+            volume_data = None
+            report_dict["volume_error"] = str(exc)
+            print(f"WARNING: CBOE supplements unavailable ({exc}); keeping InsiderFinance chain/spot.")
+        volume_count = int(reconciled["volume"].notna().sum())
+        report_dict.update({
+            "volume_source": "cboe" if volume_count else "unavailable",
+            "volume_cboe_count": volume_count,
+            "volume_unavailable_count": len(reconciled) - volume_count,
+            "volume_timestamp": volume_data.raw.get("timestamp") if volume_data is not None else None,
+            "iv_cboe_count": int((reconciled["iv_source"] == "cboe").sum()),
+            "quote_cboe_count": int((reconciled.get("quote_source", pd.Series(dtype=str)) == "cboe").sum()),
+        })
+    elif args.all_expiries:
         yahoo_data = yahoo.fetch_multi_chain(ticker_symbol, horizon_days=args.expiry_horizon_days)
         expiry = yahoo_data.expiry  # "ALL"
         included_expiries = yahoo_data.included_expirations
@@ -211,6 +269,9 @@ def main() -> None:
             yahoo_data.spot = yahoo.get_spot(yf.Ticker(yahoo._yahoo_symbol(ticker_symbol)))
         expiry = args.expiry
     else:
+        from reconcile import reconcile_if_ow_chain, reconcile_pineify_chain
+        from sources import optionwatch, pineify
+
         # Primary chain: InsiderFinance (structural/OI/IV/bid/ask) + Optionwatch (bid/ask size).
         if_data = insiderfinance.fetch_chain(ticker_symbol)
         try:
@@ -258,7 +319,8 @@ def main() -> None:
         cboe_data = cboe_all
         cboe_data.chain = cboe_data.chain[cboe_data.chain["expiry"] == expiry]
 
-    effective_day = yahoo.effective_snapshot_day(snapshot_day, yahoo_data.calls, yahoo_data.puts)
+    if args.source != "insiderfinance":
+        effective_day = yahoo.effective_snapshot_day(snapshot_day, yahoo_data.calls, yahoo_data.puts)
 
     if args.time_to_expiry_days is not None:
         days, years = years_from_override(args.time_to_expiry_days)
@@ -276,9 +338,10 @@ def main() -> None:
         days, years = years_to_expiry(expiry, effective_day)
         years_by_expiry = {expiry: years}
 
-    volume_chain, volume_report = reconcile_chain(
-        cboe_data.chain, yahoo_data.calls, yahoo_data.puts, yahoo_data.spot, cboe_data.underlying_price
-    )
+    if args.source != "insiderfinance":
+        volume_chain, volume_report = reconcile_chain(
+            cboe_data.chain, yahoo_data.calls, yahoo_data.puts, yahoo_data.spot, cboe_data.underlying_price
+        )
     if if_ow_chain is not None:
         reconciled = pd.merge(
             if_ow_chain,
@@ -308,7 +371,7 @@ def main() -> None:
         if pf_report is not None:
             report_dict["pf_matched"] = pf_report["pf_matched"]
             report_dict["pf_total_pineify_rows"] = pf_report["pf_total_pineify_rows"]
-    else:
+    elif args.source != "insiderfinance":
         reconciled = volume_chain
         report_dict = volume_report.as_dict()
         report_dict["yahoo_available"] = yahoo_available
@@ -329,6 +392,8 @@ def main() -> None:
         report_dict["spot_source"] = "yahoo"
 
     chain = compute_greeks(reconciled, spot_for_greeks, years_by_expiry, args.rate)
+    if args.source == "insiderfinance":
+        report_dict["iv_unavailable_count"] = int(chain["impliedVolatility"].isna().sum())
     by_strike = aggregate_by_strike(chain)
 
     tenor_atm_iv: dict[str, float] | None = None
@@ -357,8 +422,32 @@ def main() -> None:
         included_expiries=included_expiries,
     )
     summary_dict = asdict(summary)
+    if args.source == "insiderfinance":
+        summary_dict.update({
+            "chain_source": "insiderfinance", "spot_source": "insiderfinance",
+            "source_timestamp": source_timestamp,
+            "source_is_stale": if_data.raw.get("isStale"),
+            "fetch_source": report_dict["fetch_source"],
+            "iv_cboe_count": report_dict["iv_cboe_count"],
+            "quote_cboe_count": report_dict["quote_cboe_count"],
+            "iv_unavailable_count": report_dict["iv_unavailable_count"],
+        })
+        summary_dict.update({key: value for key, value in report_dict.items() if key.startswith("volume_")})
 
-    if if_data is not None:
+    if args.source == "insiderfinance":
+        payloads = {"insiderfinance": if_data.raw}
+        if volume_data is not None:
+            payloads["cboe"] = volume_data.raw
+        raw_paths = tuple(output_dir / "raw" / f"{ticker_symbol}_{expiry}_{ts}_{source}.json" for source in payloads)
+        for raw_path, payload in zip(raw_paths, payloads.values()):
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        raw_frames = [storage.normalize_raw_chain(
+            reconciled, capture_ts=summary_dict["snapshot_utc"],
+            ticker=ticker_symbol, source="insiderfinance_reconciled", spot=if_data.spot,
+            source_ts=source_timestamp,
+        )]
+    elif if_data is not None:
         raw_paths = storage.save_raw(
             output_dir,
             ticker_symbol,

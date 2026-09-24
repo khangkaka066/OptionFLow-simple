@@ -1,0 +1,15 @@
+{
+  "ticker": "QQQ",
+  "spot": 740.745,
+  "source_timestamp": "2026-09-22T08:03:27.534334682+00:00",
+  "is_stale": false,
+  "source_url": "https://www.insiderfinance.io/gamma-exposure/QQQ",
+  "raw_option_count": 4880,
+  "normalized_option_count": 4880,
+  "strike_count": 200,
+  "expiration_count": 31,
+  "gex_formula": "gamma * open_interest * 100 * spot^2 * 0.01",
+  "mm_position_mode": "site_default",
+  "volume_source": "pineify",
+  "volume_contracts_matched": 173
+}

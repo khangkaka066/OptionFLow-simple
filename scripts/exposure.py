@@ -153,6 +153,19 @@ def compute_greeks(
 
 
 def aggregate_by_strike(chain: pd.DataFrame) -> pd.DataFrame:
+    if "bid_size" not in chain.columns or "ask_size" not in chain.columns:
+        chain = chain.copy()
+        chain["bid_size"] = chain.get("bid_size", np.nan)
+        chain["ask_size"] = chain.get("ask_size", np.nan)
+    if "ow_bid" not in chain.columns or "ow_ask" not in chain.columns or "ow_last" not in chain.columns:
+        chain = chain.copy()
+        chain["ow_bid"] = chain.get("ow_bid", np.nan)
+        chain["ow_ask"] = chain.get("ow_ask", np.nan)
+        chain["ow_last"] = chain.get("ow_last", np.nan)
+    if "pf_volume" not in chain.columns or "pf_oi" not in chain.columns:
+        chain = chain.copy()
+        chain["pf_volume"] = chain.get("pf_volume", np.nan)
+        chain["pf_oi"] = chain.get("pf_oi", np.nan)
     calls = chain[chain["option_type"] == "call"]
     puts = chain[chain["option_type"] == "put"]
     call_by_strike = calls.groupby("strike", dropna=True).agg(
@@ -164,6 +177,13 @@ def aggregate_by_strike(chain: pd.DataFrame) -> pd.DataFrame:
         call_volume=("volume", "sum"),
         call_iv=("impliedVolatility", "mean"),
         call_mid=("mid", "mean"),
+        call_bid_size=("bid_size", "mean"),
+        call_ask_size=("ask_size", "mean"),
+        call_ow_bid=("ow_bid", "mean"),
+        call_ow_ask=("ow_ask", "mean"),
+        call_ow_last=("ow_last", "mean"),
+        call_pf_volume=("pf_volume", "mean"),
+        call_pf_oi=("pf_oi", "mean"),
     )
     put_by_strike = puts.groupby("strike", dropna=True).agg(
         put_gex=("gex", "sum"),
@@ -174,12 +194,20 @@ def aggregate_by_strike(chain: pd.DataFrame) -> pd.DataFrame:
         put_volume=("volume", "sum"),
         put_iv=("impliedVolatility", "mean"),
         put_mid=("mid", "mean"),
+        put_bid_size=("bid_size", "mean"),
+        put_ask_size=("ask_size", "mean"),
+        put_ow_bid=("ow_bid", "mean"),
+        put_ow_ask=("ow_ask", "mean"),
+        put_ow_last=("ow_last", "mean"),
+        put_pf_volume=("pf_volume", "mean"),
+        put_pf_oi=("pf_oi", "mean"),
     )
     by_strike = call_by_strike.join(put_by_strike, how="outer").sort_index()
     by_strike["iv"] = by_strike[["call_iv", "put_iv"]].mean(axis=1, skipna=True)
     fill_cols = [
         "call_gex", "call_dex", "call_vex", "call_chex", "call_oi", "call_volume",
         "put_gex", "put_dex", "put_vex", "put_chex", "put_oi", "put_volume",
+        "call_bid_size", "call_ask_size", "put_bid_size", "put_ask_size",
     ]
     by_strike[fill_cols] = by_strike[fill_cols].fillna(0.0)
     by_strike["net_gex"] = by_strike["call_gex"] + by_strike["put_gex"]

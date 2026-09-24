@@ -1,8 +1,8 @@
-"""Fetch the primary option chain (OI/IV/bid/ask) from InsiderFinance's gamma-exposure page.
+"""Fetch the option chain from the public API used by InsiderFinance's GEX page.
 
-Passive/public only: plain unauthenticated GET of the rendered page, reading the
-Next.js `__NEXT_DATA__` payload embedded in the HTML. No login, no private API,
-no auth headers. delta/gamma are carried through for reference only — the
+Plain unauthenticated GET; the page's smaller embedded payload is a fallback
+when the API is unavailable. No login or auth headers.
+delta/gamma are carried through for reference only — the
 downstream pipeline computes its own BSM greeks from impliedVolatility.
 """
 
@@ -12,11 +12,13 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 import pandas as pd
 import requests
 
 INSIDERFINANCE_URL = "https://www.insiderfinance.io/gamma-exposure/{ticker}"
+INSIDERFINANCE_API_URL = "https://cf.insiderfinance.io/v1/gex/{ticker}"
 INSIDERFINANCE_SPOT_URL = "https://www.insiderfinance.io/api/v1/tickers/details/{ticker}"
 IF_FETCH_RETRIES = 3
 IF_RETRY_BACKOFF_SECONDS = 2.0
@@ -44,7 +46,7 @@ class InsiderFinanceChain:
     chain: pd.DataFrame  # columns: CHAIN_COLUMNS
 
 
-def fetch_raw(ticker: str, timeout: float = 20.0) -> dict:
+def fetch_page_raw(ticker: str, timeout: float = 20.0) -> dict:
     url = INSIDERFINANCE_URL.format(ticker=ticker.upper())
     last_exc: Exception | None = None
     for attempt in range(IF_FETCH_RETRIES):
@@ -64,6 +66,37 @@ def fetch_raw(ticker: str, timeout: float = 20.0) -> dict:
             if attempt < IF_FETCH_RETRIES - 1:
                 time.sleep(IF_RETRY_BACKOFF_SECONDS * (attempt + 1))
     raise last_exc
+
+
+def _validate_raw(raw: dict, ticker: str) -> dict:
+    if not isinstance(raw, dict) or str(raw.get("ticker", "")).upper() != ticker.upper():
+        raise ValueError("insiderfinance: response ticker does not match request")
+    if not isinstance(raw.get("options"), list) or not raw["options"]:
+        raise ValueError("insiderfinance: response has no option chain")
+    return raw
+
+
+def fetch_raw(ticker: str, timeout: float = 20.0) -> dict:
+    """Prefer the full API chain, including contracts omitted from the HTML."""
+    for attempt in range(IF_FETCH_RETRIES):
+        try:
+            response = requests.get(
+                INSIDERFINANCE_API_URL.format(ticker=ticker.upper()),
+                headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout,
+            )
+            response.raise_for_status()
+            raw = _validate_raw(response.json(), ticker)
+            return {**raw, "fetch_source": "api"}
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            retryable = not isinstance(exc, requests.exceptions.HTTPError) or (
+                exc.response is not None and (exc.response.status_code == 429 or exc.response.status_code >= 500)
+            )
+            if not retryable or attempt == IF_FETCH_RETRIES - 1:
+                print(f"WARNING: InsiderFinance API unavailable ({exc}); using the smaller HTML chain.")
+                break
+            time.sleep(IF_RETRY_BACKOFF_SECONDS * (attempt + 1))
+    raw = _validate_raw(fetch_page_raw(ticker, timeout=timeout), ticker)
+    return {**raw, "fetch_source": "html_fallback"}
 
 
 def fetch_spot(ticker: str, timeout: float = 20.0) -> float | None:
@@ -124,3 +157,37 @@ def parse_chain(raw: dict, ticker: str, expiry: str | None = None) -> InsiderFin
 def fetch_chain(ticker: str, expiry: str | None = None, timeout: float = 20.0) -> InsiderFinanceChain:
     raw = fetch_raw(ticker, timeout=timeout)
     return parse_chain(raw, ticker, expiry)
+
+
+def snapshot_chain(
+    data: InsiderFinanceChain,
+    market_day: date,
+    *,
+    expiry: str | None = None,
+    all_expiries: bool = False,
+    horizon_days: int = 45,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Select expiries and normalize the public chain for the exposure pipeline."""
+    available = sorted(e for e in data.chain["expiry"].dropna().unique() if e >= market_day.isoformat())
+    if all_expiries:
+        if horizon_days < 0:
+            raise ValueError("insiderfinance: expiry horizon must be nonnegative")
+        cutoff = (market_day + timedelta(days=horizon_days)).isoformat()
+        selected = available if horizon_days == 0 else [e for e in available if e <= cutoff]
+    elif expiry:
+        selected = [expiry] if expiry in available else []
+    else:
+        selected = available[:1]
+    if not selected:
+        raise ValueError(f"insiderfinance: no available expiries for {expiry or 'requested horizon'}")
+
+    chain = data.chain[data.chain["expiry"].isin(selected)].rename(columns={
+        "if_oi": "openInterest", "if_iv": "impliedVolatility",
+        "if_bid": "bid", "if_ask": "ask",
+    }).reset_index(drop=True)
+    # The public payload does not provide traded volume or quote sizes.
+    chain["volume"] = float("nan")
+    chain["volume_source"] = "unavailable"
+    chain["oi_source"] = "insiderfinance"
+    chain["iv_source"] = "insiderfinance"
+    return chain, selected
