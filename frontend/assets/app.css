@@ -166,6 +166,42 @@
   }
   .skew-tooltip .strike { color: #CBD5E1; font-weight: 700; margin-bottom: 3px; }
   .skew-tooltip .muted { color: #94A3B8; }
+  .skew-view-tabs {
+    display: flex; gap: 3px; background: #0F172A;
+    border: 1px solid #263244; border-radius: 8px; padding: 3px;
+  }
+  .skew-view-tab {
+    height: 24px; padding: 0 10px; border: none; border-radius: 6px;
+    background: transparent; color: #94A3B8; font-size: 11px; font-weight: 700;
+    letter-spacing: .03em; cursor: pointer;
+  }
+  .skew-view-tab.active { background: rgba(250,204,21,0.15); color: #FACC15; }
+  .skew-stats-grid {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;
+    padding: 12px 16px 0;
+  }
+  .skew-stat-card {
+    background: #0F172A; border: 1px solid #263244; border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .skew-stat-label {
+    color: #64748B; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    font-weight: 700; margin-bottom: 4px;
+  }
+  .skew-stat-value {
+    font: 800 18px/1.1 Menlo, Consolas, monospace; color: #E5E7EB; letter-spacing: .02em;
+  }
+  .skew-stat-value.positive { color: var(--accent-put); }
+  .skew-stat-value.negative { color: var(--accent-call); }
+  .skew-stat-sub { color: #7C8798; font-size: 11px; margin-top: 4px; }
+  .skew-table { max-height: 340px; overflow-y: auto; }
+  .skew-table table { width: 100%; border-collapse: collapse; font: 12px/1.4 Menlo, Consolas, monospace; }
+  .skew-table th, .skew-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid #1A2332; }
+  .skew-table th { color: #64748B; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; position: sticky; top: 0; background: #090D15; }
+  .skew-table td:first-child, .skew-table th:first-child { text-align: center; color: #CBD5E1; font-weight: 700; }
+  .skew-table td.call-col { color: var(--accent-call); }
+  .skew-table td.put-col { color: var(--accent-put); }
+  .skew-table tr.atm-row td { background: rgba(250,204,21,0.08); }
 
   .surface3d__controls {
     margin-left: auto; display: flex; align-items: center; gap: 8px;
@@ -250,4 +286,8 @@
     .grid { grid-template-columns: 1fr; }
     .skew-panel .panel-header { align-items: flex-start; }
     .skew-controls { flex-wrap: wrap; justify-content: flex-end; }
+    .skew-stats-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 1300px) and (min-width: 901px) {
+    .skew-stats-grid { grid-template-columns: repeat(3, 1fr); }
   }

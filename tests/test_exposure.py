@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from exposure import aggregate_by_strike, aggregate_greeks_by_expiry_strike, compute_expected_move, compute_greeks, find_expected_move_anchor
+from exposure import aggregate_by_strike, aggregate_greeks_by_expiry_strike, compute_expected_move, compute_greeks, find_expected_move_anchor, interpolate_iv_by_strike
 
 
 def option_chain() -> pd.DataFrame:
@@ -105,6 +105,51 @@ def test_aggregate_greeks_by_expiry_strike_oi_weighted_mean() -> None:
     # zero OI on both legs -> plain (unweighted) mean, not a division-by-zero NaN
     assert fallback_row["avg_delta"] == pytest.approx((0.3 + -0.7) / 2)
     assert fallback_row["avg_gamma"] == pytest.approx(0.01)
+
+
+def test_illiquid_strikes_get_interpolated_iv_instead_of_zero_gex() -> None:
+    """Strikes with no usable quote and no valid source IV used to end up
+    with NaN gamma, which `groupby.sum()` silently drops -> the strike
+    showed 0 GEX on the dashboard despite carrying real open interest.
+    They should instead pick up an interpolated IV from neighboring
+    strikes that do have a valid quote/IV."""
+    chain = pd.DataFrame(
+        [
+            {"expiry": "2026-09-18", "strike": 90.0, "option_type": "call", "impliedVolatility": np.nan, "openInterest": 50.0, "volume": 0.0, "bid": 0.0, "ask": 0.0},
+            {"expiry": "2026-09-18", "strike": 95.0, "option_type": "call", "impliedVolatility": 0.30, "openInterest": 20.0, "volume": 3.0, "bid": 0.0, "ask": 0.0},
+            {"expiry": "2026-09-18", "strike": 105.0, "option_type": "call", "impliedVolatility": 0.20, "openInterest": 20.0, "volume": 3.0, "bid": 0.0, "ask": 0.0},
+            {"expiry": "2026-09-18", "strike": 110.0, "option_type": "call", "impliedVolatility": np.nan, "openInterest": 50.0, "volume": 0.0, "bid": 0.0, "ask": 0.0},
+        ]
+    )
+    greeks = compute_greeks(chain, spot=100.0, years_by_expiry={"2026-09-18": 30 / 365}, rate=0.0)
+    by_strike = greeks.set_index("strike")
+
+    # edge strikes beyond the outermost valid quote hold flat at the
+    # nearest valid IV rather than staying NaN.
+    assert by_strike.loc[90.0, "impliedVolatility"] == pytest.approx(0.30)
+    assert by_strike.loc[110.0, "impliedVolatility"] == pytest.approx(0.20)
+    assert by_strike.loc[90.0, "iv_source_model"] == "interpolated"
+    assert by_strike.loc[110.0, "iv_source_model"] == "interpolated"
+
+    # gamma/gex are now real (finite, nonzero), so aggregate_by_strike no
+    # longer silently zeroes these strikes out via NaN-skipping sum().
+    assert np.isfinite(by_strike.loc[90.0, "gex"])
+    assert by_strike.loc[90.0, "gex"] != 0.0
+
+    agg = aggregate_by_strike(greeks)
+    assert agg.set_index("strike").loc[90.0, "call_gex"] != 0.0
+
+
+def test_interpolate_iv_by_strike_fills_interior_gap_linearly() -> None:
+    chain = pd.DataFrame(
+        [
+            {"expiry": "2026-09-18", "strike": 100.0, "option_type": "call", "impliedVolatility": 0.20},
+            {"expiry": "2026-09-18", "strike": 105.0, "option_type": "call", "impliedVolatility": np.nan},
+            {"expiry": "2026-09-18", "strike": 110.0, "option_type": "call", "impliedVolatility": 0.30},
+        ]
+    )
+    filled = interpolate_iv_by_strike(chain)
+    assert filled.iloc[1] == pytest.approx(0.25)
 
 
 def test_compute_expected_move_one_std_dev() -> None:

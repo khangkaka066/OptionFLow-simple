@@ -51,29 +51,38 @@ function updateExposureDealerBalance(id, rows, cfg) {
     </div>`;
 }
 
+// A single dominant strike (e.g. the gamma wall) can be 10-100x every
+// other strike's exposure. On a linear axis sized to that one outlier,
+// every other strike's real, nonzero exposure rounds down to a sub-pixel
+// bar — indistinguishable from "no data". A signed square-root transform
+// compresses that outlier's dominance just enough to keep every strike's
+// bar visible, while still growing with magnitude (unlike log, which
+// flattens a 10x value gap into a barely-different bar length).
+function symlogTransform(value) {
+  return Math.sign(value) * Math.sqrt(Math.abs(value));
+}
+
 export function drawExposure(id, rows, key, summary) {
-  const baseRows = rows
+  // Only drop strikes with no real data (zero exposure AND no open
+  // interest on either leg) — every strike that actually carries exposure
+  // or OI stays on the chart, however small, matching how a dealer
+  // positioning chart should read: every strike gets a number.
+  const cleanRows = rows
     .filter(r => Number.isFinite(Number(r.strike)) && Number.isFinite(Number(r[key])))
-    .filter(r => Number(r[key]) !== 0 || Number(r.call_oi) > 0 || Number(r.put_oi) > 0);
-  // Strikes whose exposure is negligible next to the biggest strike just
-  // clutter the row axis with invisible bars — keep only the ones with a
-  // real share of the total so the panel stays cropped to what matters.
-  const fullMaxAbs = Math.max(1, ...baseRows.map(r => Math.abs(Number(r[key]) || 0)));
-  const cleanRows = baseRows
-    .filter(r => Math.abs(Number(r[key]) || 0) >= fullMaxAbs * 0.03)
+    .filter(r => Number(r[key]) !== 0 || Number(r.call_oi) > 0 || Number(r.put_oi) > 0)
     .sort((a, b) => Number(a.strike) - Number(b.strike));
-  const values = cleanRows.map(r => Number(r[key]) || 0);
+  const values = cleanRows.map(r => symlogTransform(Number(r[key]) || 0));
   const strikes = cleanRows.map(r => Number(r.strike));
   const maxAbs = Math.max(1, ...values.map(v => Math.abs(v)));
   const positiveColor = COLORS.cyan;
   const negativeColor = COLORS.orange;
   const cfg = EXPOSURE_CONFIG[key];
-  updateExposureDealerBalance(id, baseRows, cfg);
+  updateExposureDealerBalance(id, cleanRows, cfg);
   const label = cfg.label;
   const callKey = cfg.callKey;
   const putKey = cfg.putKey;
   const buildExposureTrace = (sideRows, color, name, fadeSide) => ({
-    x: sideRows.map(r => Number(r[key]) || 0),
+    x: sideRows.map(r => symlogTransform(Number(r[key]) || 0)),
     y: sideRows.map(r => Number(r.strike)),
     type: "bar",
     orientation: "h",

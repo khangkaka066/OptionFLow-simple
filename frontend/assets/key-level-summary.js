@@ -7,11 +7,12 @@ const CONFIDENCE_LABEL = { high: "cao", low: "thấp" };
 function buildKeyLevelLine(ticker, summary) {
   const label = `$${String(ticker || "QQQ").toUpperCase()}`;
   const basisLabel = summary.basis === "eod" ? "EOD (locked)" : "Intraday";
+  const ivLabel = summary.basis === "eod" ? "IV EOD" : "IV Live";
   const key = summary.key_level;
   const trigger = summary.trigger_level;
   const parts = [
     `${label}: Regime GEX ${GAMMA_REGIME_LABEL[summary.gamma_regime] || "NA"}`,
-    "IV EOD", summary.iv_eod_pct != null ? `${fmtLevel(summary.iv_eod_pct, 1)}%` : "NA",
+    ivLabel, summary.iv_eod_pct != null ? `${fmtLevel(summary.iv_eod_pct, 1)}%` : "NA",
     "Vanna", REGIME_LABEL[summary.vanna_regime] || "NA",
     "DEX", REGIME_LABEL[summary.dex_regime] || "NA",
     "Key Level", key ? `${fmtLevel(key.price, 2)} (${key.label}, conf=${CONFIDENCE_LABEL[key.confidence] || key.confidence})` : "NA",
@@ -49,6 +50,7 @@ function renderKeyLevelPanel(summary, ticker) {
     if (el) el.textContent = text;
   };
   setText("keyLevelGamma", GAMMA_REGIME_LABEL[summary.gamma_regime] || "NA");
+  setText("keyLevelIvLabel", summary.basis === "eod" ? "IV EOD" : "IV Live");
   setText("keyLevelIv", summary.iv_eod_pct != null ? `${fmtLevel(summary.iv_eod_pct, 1)}%` : "NA");
   setText("keyLevelVanna", REGIME_LABEL[summary.vanna_regime] || "NA");
   setText("keyLevelDex", REGIME_LABEL[summary.dex_regime] || "NA");

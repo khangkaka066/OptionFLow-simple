@@ -82,6 +82,37 @@ class GexSummary:
     included_expiries: list[str] = field(default_factory=list)
 
 
+def interpolate_iv_by_strike(chain: pd.DataFrame) -> pd.Series:
+    """Fill IV gaps left by strikes with no usable quote (bid/ask=0 or a
+    spread too wide to trust) and no valid source IV.
+
+    Without this, those strikes' gamma/GEX/etc. are NaN and get dropped
+    from the strike aggregate (pandas `sum` skips NaN), so the strike shows
+    up as empty on the dashboard even though it has real open interest.
+    Real GEX providers avoid this by fitting a smooth vol surface across
+    strikes; this does the cheap version of that: linearly interpolate the
+    smile/skew from the strikes on either side that *do* have a valid IV,
+    within the same expiry and option type. Strikes beyond the outermost
+    liquid strike (no valid IV on one side) hold flat at the nearest valid
+    value rather than extrapolating.
+    """
+    iv = chain["impliedVolatility"].copy()
+    for _, idx in chain.groupby(["expiry", "option_type"]).groups.items():
+        sub = chain.loc[idx].sort_values("strike")
+        strikes = sub["strike"].to_numpy(dtype=float)
+        values = sub["impliedVolatility"].to_numpy(dtype=float)
+        valid = np.isfinite(values)
+        if valid.sum() < 2:
+            continue
+        missing = ~valid & np.isfinite(strikes)
+        if not missing.any():
+            continue
+        filled = values.copy()
+        filled[missing] = np.interp(strikes[missing], strikes[valid], values[valid])
+        iv.loc[sub.index[missing]] = filled[missing]
+    return iv
+
+
 def compute_greeks(
     reconciled: pd.DataFrame, spot: float, years_by_expiry: dict[str, float], rate: float
 ) -> pd.DataFrame:
@@ -118,6 +149,10 @@ def compute_greeks(
     source_iv = chain["input_impliedVolatility"].where(chain["input_impliedVolatility"].between(0.01, 5.0))
     chain["impliedVolatility"] = mid_iv.where(mid_iv.between(0.01, 5.0), source_iv)
     chain["iv_source_model"] = np.where(mid_iv.between(0.01, 5.0), "mid", "source")
+    interpolated_iv = interpolate_iv_by_strike(chain)
+    still_missing = chain["impliedVolatility"].isna() & interpolated_iv.notna()
+    chain["impliedVolatility"] = chain["impliedVolatility"].where(~still_missing, interpolated_iv)
+    chain.loc[still_missing, "iv_source_model"] = "interpolated"
     chain["gamma"] = [
         bs_gamma(spot, strike, y, rate, iv) for strike, y, iv in zip(chain["strike"], years, chain["impliedVolatility"])
     ]
@@ -337,6 +372,8 @@ def nearest_atm_iv(by_strike: pd.DataFrame, spot: float) -> float | None:
     damps that single-point noise without pulling in strikes far enough OTM
     to carry real skew.
     """
+    if by_strike.empty or "strike" not in by_strike:
+        return None
     clean = by_strike[np.isfinite(by_strike["strike"])].copy()
     if clean.empty or "iv" not in clean:
         return None

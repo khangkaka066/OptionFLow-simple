@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import math
 
+import pandas as pd
+
+from exposure import nearest_atm_iv
+
 CANDIDATE_LEVELS = (
     ("call_resistance", "Call Resistance"),
     ("put_support", "Put Support"),
@@ -73,7 +77,14 @@ def compute_key_level_summary(
     net_gex = _num(summary.get("net_gex")) or 0.0
     net_dex = _num(summary.get("net_dex")) or 0.0
     net_vex = _num(summary.get("net_vex")) or 0.0
-    avg_iv = _num(summary.get("avg_iv"))
+    # A chain-wide mean IV (summary["avg_iv"]) is dragged around by noisy,
+    # illiquid deep-OTM back-solves; nearest_atm_iv's liquidity-filtered
+    # median of the strikes nearest this basis's own spot is the same robust
+    # ATM read the Skew/IV-Rank panels use, so "IV EOD" means the same thing
+    # everywhere in the dashboard. Falls back to the old chain-wide mean only
+    # when there aren't enough by_strike rows to compute it.
+    atm_iv_pct = nearest_atm_iv(pd.DataFrame(by_strike), spot_ref) if by_strike and spot_ref is not None else None
+    avg_iv = (atm_iv_pct / 100.0) if atm_iv_pct is not None else _num(summary.get("avg_iv"))
     gamma_flip = _num(summary.get("gamma_flip"))
     delta_flip = _num(summary.get("delta_flip"))
 

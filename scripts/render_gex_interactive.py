@@ -616,6 +616,7 @@ def build_tenor_curves(
                 "expiry": expiry,
                 "dte": expiry_dte[expiry],
                 "atm_iv": atm_iv,
+                "atm_strike": atm_strike,
                 "call": call_curve,
                 "put": put_curve,
                 "iv": iv_curve,

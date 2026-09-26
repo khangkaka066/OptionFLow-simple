@@ -110,12 +110,17 @@
     <div class="panel-header"><span class="dot"></span>IV Rank<input type="date" class="panel-date-picker" id="ivRankDate"></div>
     <div class="body"><div id="ivrank" style="height:340px;"></div></div>
   </div>
-  <div class="panel skew-panel">
+  <div class="panel wide skew-panel">
     <div class="panel-header"><span class="dot" style="background:#FACC15"></span>Volatility Skew
       <div class="skew-controls">
         <input type="date" class="panel-date-picker skew-date-picker" id="skewDatePicker">
         <span id="skewDate" class="skew-readout">--</span>
         <select id="skewExpiry"></select>
+        <div class="skew-view-tabs" id="skewViewTabs">
+          <button type="button" class="skew-view-tab active" data-view="smile">Smile</button>
+          <button type="button" class="skew-view-tab" data-view="term">Term</button>
+          <button type="button" class="skew-view-tab" data-view="table">Table</button>
+        </div>
         <div class="skew-series" id="skewSeries">
           <button type="button" id="skewSeriesBtn">Calls · Puts · IV</button>
           <div class="skew-series-menu" id="skewSeriesMenu" hidden>
@@ -127,7 +132,39 @@
         <span id="skewTicker" class="skew-readout">QQQ</span>
       </div>
     </div>
-    <div class="body skew-wrap">
+    <div class="skew-stats-grid" id="skewStatsGrid">
+      <div class="skew-stat-card">
+        <div class="skew-stat-label">ATM IV</div>
+        <div class="skew-stat-value" id="skewStatAtmIv">--</div>
+        <div class="skew-stat-sub" id="skewStatAtmStrike">Strike --</div>
+      </div>
+      <div class="skew-stat-card">
+        <div class="skew-stat-label">25&#916; Skew</div>
+        <div class="skew-stat-value" id="skewStat25dSkew">--</div>
+        <div class="skew-stat-sub" id="skewStat25dSkewSub">--</div>
+      </div>
+      <div class="skew-stat-card">
+        <div class="skew-stat-label">25&#916; Butterfly</div>
+        <div class="skew-stat-value" id="skewStat25dFly">--</div>
+        <div class="skew-stat-sub">Curvature vs ATM</div>
+      </div>
+      <div class="skew-stat-card">
+        <div class="skew-stat-label">10&#916; Skew</div>
+        <div class="skew-stat-value" id="skewStat10dSkew">--</div>
+        <div class="skew-stat-sub">Crash-hedge tilt</div>
+      </div>
+      <div class="skew-stat-card">
+        <div class="skew-stat-label">Skew Slope</div>
+        <div class="skew-stat-value" id="skewStatSlope">--</div>
+        <div class="skew-stat-sub">IV pts per 1% of strike</div>
+      </div>
+      <div class="skew-stat-card">
+        <div class="skew-stat-label">Term Slope</div>
+        <div class="skew-stat-value" id="skewStatTermSlope">--</div>
+        <div class="skew-stat-sub" id="skewStatTermSub">--</div>
+      </div>
+    </div>
+    <div class="body skew-wrap" id="skewSmileView">
       <div id="skew" style="height:100%;"></div>
       <div class="skew-mini-legend" aria-hidden="true">
         <span class="sample calls"></span><span>calls</span>
@@ -135,6 +172,12 @@
         <span class="sample iv"></span><span>iv</span>
       </div>
       <div id="skewTooltip" class="skew-tooltip"></div>
+    </div>
+    <div class="body skew-wrap" id="skewTermView" hidden>
+      <div id="skewTerm" style="height:100%;"></div>
+    </div>
+    <div class="body" id="skewTableView" hidden>
+      <div id="skewTable" class="skew-table"></div>
     </div>
   </div>
   <div class="panel">
@@ -332,7 +375,7 @@
         <div id="keyLevelStatus">Đang chờ xác nhận sau 9:00 NY...</div>
         <div id="keyLevelBody" hidden>
           <div>Regime GEX: <span id="keyLevelGamma">NA</span></div>
-          <div>IV EOD: <span id="keyLevelIv">NA</span></div>
+          <div><span id="keyLevelIvLabel">IV EOD</span>: <span id="keyLevelIv">NA</span></div>
           <div>Vanna EOD: <span id="keyLevelVanna">NA</span></div>
           <div>DEX: <span id="keyLevelDex">NA</span></div>
           <div>Key Level: <span id="keyLevelKey">NA</span></div>

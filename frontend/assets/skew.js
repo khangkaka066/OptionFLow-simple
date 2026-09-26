@@ -1,19 +1,37 @@
 import { COLORS } from "./config.js";
-import { baseLayout, rightLegend } from "./utils.js";
+import { baseLayout, rgbaFromHex, rightLegend } from "./utils.js";
 
 let skewExpirySelected = "nearest";
 let skewSeriesVisible = {call: true, put: true, iv: true};
 let skewExpiryOptionsKey = "";
-
-const TENOR_COLORS = [COLORS.orange, COLORS.cyan, COLORS.green, "#7C3AED", "#F472B6", COLORS.yellow];
+let skewViewSelected = "smile";
 
 export function drawSkew(rows, summary, tenors) {
   syncSkewContext(summary);
-  if ((tenors || []).length >= 1) {
-    drawSkewTenors(tenors, Number(summary?.spot));
+  const allTenors = tenors || [];
+  if (allTenors.length >= 1) {
+    syncSkewExpiryOptions(allTenors);
+    const tenor = selectedTenor(allTenors);
+    renderSkewStatCards(tenor);
+    if (skewViewSelected === "term") {
+      drawSkewTerm(allTenors);
+    } else if (skewViewSelected === "table") {
+      renderSkewTable(tenor);
+    } else {
+      drawSkewTenor(tenor, Number(summary?.spot));
+    }
     return;
   }
-  drawSkewSingle(rows, summary);
+  renderSkewStatCards(null);
+  if (skewViewSelected === "smile") drawSkewSingle(rows, summary);
+}
+
+function selectedTenor(tenors) {
+  if (skewExpirySelected !== "nearest") {
+    const match = tenors.find(t => t.expiry === skewExpirySelected);
+    if (match) return match;
+  }
+  return [...tenors].sort((a, b) => (a.dte ?? 0) - (b.dte ?? 0))[0];
 }
 
 function syncSkewContext(summary) {
@@ -35,19 +53,84 @@ function syncSkewExpiryOptions(tenors) {
   const key = tenors.map(t => t.expiry).join("|");
   if (key !== skewExpiryOptionsKey) {
     skewExpiryOptionsKey = key;
+    const ordered = [...tenors].sort((a, b) => (a.dte ?? 0) - (b.dte ?? 0));
     const options = ['<option value="nearest">Nearest</option>'];
-    tenors.forEach(tenor => {
+    ordered.forEach(tenor => {
       const name = Number.isFinite(tenor.dte) ? `${tenor.dte}DTE` : "Expiry";
       const dateLabel = tenor.expiry
         ? new Date(tenor.expiry).toLocaleDateString("en-US", {month: "short", day: "2-digit"})
         : tenor.expiry;
-      options.push(`<option value="${tenor.expiry}">${name} · ${dateLabel}</option>`);
+      options.push(`<option value="${tenor.expiry}">${dateLabel} · ${name}</option>`);
     });
     sel.innerHTML = options.join("");
     const stillValid = skewExpirySelected === "nearest" || tenors.some(t => t.expiry === skewExpirySelected);
     if (!stillValid) skewExpirySelected = "nearest";
     sel.value = skewExpirySelected;
   }
+}
+
+function fmtSigned(value, decimals = 1, suffix = "") {
+  if (!Number.isFinite(Number(value))) return "--";
+  const n = Number(value);
+  const sign = n > 0 ? "+" : n < 0 ? "" : "";
+  return `${sign}${n.toFixed(decimals)}${suffix}`;
+}
+
+function setStatValueClass(el, value) {
+  if (!el) return;
+  el.classList.remove("positive", "negative");
+  if (!Number.isFinite(Number(value))) return;
+  if (Number(value) > 0) el.classList.add("positive");
+  else if (Number(value) < 0) el.classList.add("negative");
+}
+
+// InsiderFinance's exact formulas aren't published; these follow the
+// standard delta-bucket risk-reversal/butterfly convention computed
+// server-side in scripts/skew_stats.py, not a numeric clone of their widget.
+export function renderSkewStatCards(tenor) {
+  const atmIvEl = document.getElementById("skewStatAtmIv");
+  const atmStrikeEl = document.getElementById("skewStatAtmStrike");
+  const skew25El = document.getElementById("skewStat25dSkew");
+  const skew25SubEl = document.getElementById("skewStat25dSkewSub");
+  const fly25El = document.getElementById("skewStat25dFly");
+  const skew10El = document.getElementById("skewStat10dSkew");
+  const slopeEl = document.getElementById("skewStatSlope");
+  const termEl = document.getElementById("skewStatTermSlope");
+  const termSubEl = document.getElementById("skewStatTermSub");
+  if (!atmIvEl) return;
+
+  if (!tenor) {
+    [atmIvEl, skew25El, fly25El, skew10El, slopeEl, termEl].forEach(el => { if (el) el.textContent = "--"; });
+    if (atmStrikeEl) atmStrikeEl.textContent = "Strike --";
+    if (skew25SubEl) skew25SubEl.textContent = "--";
+    if (termSubEl) termSubEl.textContent = "--";
+    return;
+  }
+
+  atmIvEl.textContent = Number.isFinite(Number(tenor.atm_iv)) ? `${(Number(tenor.atm_iv) * 100).toFixed(1)}%` : "--";
+  atmStrikeEl.textContent = Number.isFinite(Number(tenor.atm_strike)) ? `Strike ${Number(tenor.atm_strike).toFixed(0)}` : "Strike --";
+
+  skew25El.textContent = fmtSigned(tenor.skew_25d, 1, " pts");
+  setStatValueClass(skew25El, tenor.skew_25d);
+  if (Number.isFinite(Number(tenor.skew_25d)) && tenor.put_25d && tenor.call_25d) {
+    const tilt = Number(tenor.skew_25d) > 0 ? "Puts rich, downside bid" : "Calls rich, upside bid";
+    skew25SubEl.textContent = `${tilt} · ${tenor.put_25d.strike.toFixed(0)}P ${(tenor.put_25d.iv * 100).toFixed(1)}% vs ${tenor.call_25d.strike.toFixed(0)}C ${(tenor.call_25d.iv * 100).toFixed(1)}%`;
+  } else {
+    skew25SubEl.textContent = "Not enough liquid strikes";
+  }
+
+  fly25El.textContent = fmtSigned(tenor.butterfly_25d, 1, " pts");
+  setStatValueClass(fly25El, tenor.butterfly_25d);
+
+  skew10El.textContent = fmtSigned(tenor.skew_10d, 1, " pts");
+  setStatValueClass(skew10El, tenor.skew_10d);
+
+  slopeEl.textContent = fmtSigned(tenor.skew_slope, 2);
+  setStatValueClass(slopeEl, tenor.skew_slope);
+
+  termEl.textContent = fmtSigned(tenor.term_slope, 1, " pts");
+  setStatValueClass(termEl, tenor.term_slope);
+  termSubEl.textContent = tenor.term_slope_label || "Term flat";
 }
 
 function nearestSkewPoint(trace, strike) {
@@ -142,52 +225,77 @@ function renderSkewChart(data, layout) {
   }).then(() => installSkewHover(data, baseShapes));
 }
 
-function drawSkewTenors(tenors, spot) {
-  syncSkewExpiryOptions(tenors);
-  const tenorsToShow = skewExpirySelected === "nearest"
-    ? tenors
-    : tenors.filter(t => t.expiry === skewExpirySelected);
-  const labels = [];
+// One expiry at a time (InsiderFinance shows a single tenor via its own
+// expiry dropdown, not several overlaid) with a filled put/call smile,
+// an ATM reference line, and 25Δ wing markers when the backend found them.
+function drawSkewTenor(tenor, spot) {
+  if (!tenor) {
+    renderSkewChart([], baseLayout(340));
+    return;
+  }
   const data = [];
-  tenorsToShow.forEach((tenor, i) => {
-    const color = tenor.color || TENOR_COLORS[i % TENOR_COLORS.length];
-    const name = Number.isFinite(tenor.dte) ? `${tenor.dte}DTE` : tenor.expiry;
-    if (Number.isFinite(Number(tenor.atm_iv))) {
-      labels.push(`<span style="color:${color}">${name}</span> <span style="color:${COLORS.muted}">${(Number(tenor.atm_iv) * 100).toFixed(1)}%</span>`);
-    }
-    const sides = [
-      {key: "call", label: "C", dash: "solid"},
-      {key: "put", label: "P", dash: "dash"},
-      {key: "iv", label: "IV", dash: "dot"}
-    ].filter(side => skewSeriesVisible[side.key]);
-    sides.forEach(side => {
-      const curve = tenor[side.key];
-      if (!curve || !curve.strike || !curve.strike.length) return;
-      data.push({
-        x: curve.strike,
-        y: curve.iv.map(v => Number(v) * 100),
-        type: "scatter",
-        mode: "lines",
-        name: `${name} ${side.label}`,
-        showlegend: false,
-        meta: {skew: {tenor: name, side: side.label, color}},
-        line: {color, width: 2, dash: side.dash},
-        hovertemplate: "<extra></extra>"
-      });
+  if (skewSeriesVisible.put && tenor.put?.strike?.length) {
+    data.push({
+      x: tenor.put.strike,
+      y: tenor.put.iv.map(v => Number(v) * 100),
+      type: "scatter", mode: "lines", name: "Puts", fill: "tozeroy",
+      fillcolor: rgbaFromHex(COLORS.orange, 0.18),
+      line: {color: COLORS.orange, width: 2},
+      meta: {skew: {tenor: "Puts", side: "P", color: COLORS.orange}},
+      hovertemplate: "<extra></extra>"
     });
+  }
+  if (skewSeriesVisible.call && tenor.call?.strike?.length) {
+    data.push({
+      x: tenor.call.strike,
+      y: tenor.call.iv.map(v => Number(v) * 100),
+      type: "scatter", mode: "lines", name: "Calls", fill: "tozeroy",
+      fillcolor: rgbaFromHex(COLORS.cyan, 0.18),
+      line: {color: COLORS.cyan, width: 2},
+      meta: {skew: {tenor: "Calls", side: "C", color: COLORS.cyan}},
+      hovertemplate: "<extra></extra>"
+    });
+  }
+  if (skewSeriesVisible.iv && tenor.iv?.strike?.length) {
+    data.push({
+      x: tenor.iv.strike,
+      y: tenor.iv.iv.map(v => Number(v) * 100),
+      type: "scatter", mode: "lines", name: "IV", line: {color: COLORS.muted, width: 1, dash: "dot"},
+      meta: {skew: {tenor: "IV", side: "IV", color: COLORS.muted}},
+      hovertemplate: "<extra></extra>"
+    });
+  }
+
+  const shapes = [];
+  const annotations = [];
+  if (Number.isFinite(spot)) {
+    shapes.push({type: "line", x0: spot, x1: spot, y0: 0, y1: 1, xref: "x", yref: "paper", line: {color: COLORS.spot, dash: "dot"}});
+  }
+  if (Number.isFinite(Number(tenor.atm_iv))) {
+    const atmPct = Number(tenor.atm_iv) * 100;
+    shapes.push({type: "line", x0: 0, x1: 1, y0: atmPct, y1: atmPct, xref: "paper", yref: "y", line: {color: COLORS.yellow, dash: "dash", width: 1}});
+  }
+  [
+    {point: tenor.put_25d, label: "25Δ"},
+    {point: tenor.call_25d, label: "25Δ"},
+  ].forEach(({point, label}) => {
+    if (!point) return;
+    data.push({
+      x: [point.strike], y: [point.iv * 100], type: "scatter", mode: "markers",
+      marker: {size: 9, color: "rgba(0,0,0,0)", line: {color: COLORS.muted, width: 1.5}},
+      showlegend: false, hoverinfo: "skip",
+    });
+    annotations.push({x: point.strike, y: point.iv * 100, text: label, showarrow: false, yshift: 14, font: {color: COLORS.muted, size: 10}});
   });
+
   const layout = baseLayout(340);
-  layout.margin = {l: 70, r: 28, t: 55, b: 48};
+  layout.margin = {l: 70, r: 28, t: 20, b: 48};
   layout.showlegend = false;
   layout.hovermode = "closest";
   layout.xaxis = {title: "Strike", showgrid: false, zeroline: false, color: COLORS.muted, tickfont: {size: 12}};
   layout.yaxis = {title: "IV %", showgrid: true, gridcolor: "rgba(31,41,55,0.72)", zeroline: false, color: COLORS.muted, ticksuffix: "%", tickfont: {size: 12}};
-  if (Number.isFinite(spot)) {
-    layout.shapes = [{type: "line", x0: spot, x1: spot, y0: 0, y1: 1, xref: "x", yref: "paper", line: {color: COLORS.spot, dash: "dot"}}];
-  }
-  if (labels.length) {
-    layout.annotations = [{x: 0, y: 1.16, xref: "paper", yref: "paper", text: labels.join(" · "), showarrow: false, font: {color: COLORS.muted, size: 11}, xanchor: "left"}];
-  }
+  layout.shapes = shapes;
+  layout.annotations = annotations;
   renderSkewChart(data, layout);
 }
 
@@ -269,7 +377,7 @@ function drawSkewSingle(rows, summary) {
     });
   }
   const layout = baseLayout(340);
-  layout.margin = {l: 70, r: 28, t: 55, b: 48};
+  layout.margin = {l: 70, r: 28, t: 20, b: 48};
   layout.legend = rightLegend();
   layout.hovermode = "closest";
   layout.xaxis = {title: "Strike", showgrid: false, zeroline: false, color: COLORS.muted, tickfont: {size: 12}};
@@ -278,6 +386,74 @@ function drawSkewSingle(rows, summary) {
     layout.shapes = [{type: "line", x0: spot, x1: spot, y0: 0, y1: 1, xref: "x", yref: "paper", line: {color: COLORS.spot, dash: "dot"}}];
   }
   renderSkewChart(data, layout);
+}
+
+function drawSkewTerm(tenors) {
+  const ordered = [...tenors]
+    .filter(t => Number.isFinite(Number(t.atm_iv)) && Number.isFinite(Number(t.dte)))
+    .sort((a, b) => a.dte - b.dte);
+  const data = [{
+    x: ordered.map(t => t.dte),
+    y: ordered.map(t => Number(t.atm_iv) * 100),
+    type: "scatter", mode: "lines+markers", name: "ATM IV",
+    line: {color: COLORS.yellow, width: 2},
+    marker: {size: 7, color: COLORS.yellow},
+    text: ordered.map(t => t.expiry),
+    hovertemplate: "%{text}<br>%{x} DTE · %{y:.1f}% ATM IV<extra></extra>"
+  }];
+  const layout = baseLayout(340);
+  layout.margin = {l: 70, r: 28, t: 20, b: 48};
+  layout.showlegend = false;
+  layout.hovermode = "x unified";
+  layout.xaxis = {title: "Days to expiry", showgrid: false, zeroline: false, color: COLORS.muted, tickfont: {size: 12}};
+  layout.yaxis = {title: "ATM IV %", showgrid: true, gridcolor: "rgba(31,41,55,0.72)", zeroline: false, color: COLORS.muted, ticksuffix: "%", tickfont: {size: 12}};
+  Plotly.react("skewTerm", data, layout, {displayModeBar: false, scrollZoom: true, responsive: true});
+}
+
+function renderSkewTable(tenor) {
+  const container = document.getElementById("skewTable");
+  if (!container) return;
+  if (!tenor) {
+    container.innerHTML = "<p style=\"color:#7C8798;\">No data.</p>";
+    return;
+  }
+  const byStrike = new Map();
+  (tenor.put?.strike || []).forEach((strike, i) => {
+    byStrike.set(strike, {...(byStrike.get(strike) || {}), strike, putIv: tenor.put.iv[i]});
+  });
+  (tenor.call?.strike || []).forEach((strike, i) => {
+    byStrike.set(strike, {...(byStrike.get(strike) || {}), strike, callIv: tenor.call.iv[i]});
+  });
+  const rows = [...byStrike.values()].sort((a, b) => a.strike - b.strike);
+  const atmStrike = Number(tenor.atm_strike);
+  const body = rows.map(row => {
+    const isAtm = Number.isFinite(atmStrike) && Math.abs(row.strike - atmStrike) < 1e-6;
+    return `<tr class="${isAtm ? "atm-row" : ""}">
+      <td>${row.strike.toFixed(0)}</td>
+      <td class="call-col">${Number.isFinite(row.callIv) ? (row.callIv * 100).toFixed(1) + "%" : "--"}</td>
+      <td class="put-col">${Number.isFinite(row.putIv) ? (row.putIv * 100).toFixed(1) + "%" : "--"}</td>
+    </tr>`;
+  }).join("");
+  container.innerHTML = `<table>
+    <thead><tr><th>Strike</th><th>Call IV</th><th>Put IV</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table>`;
+}
+
+function setSkewView(view, onRedraw) {
+  skewViewSelected = view;
+  document.querySelectorAll(".skew-view-tab").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.view === view);
+  });
+  const smileView = document.getElementById("skewSmileView");
+  const termView = document.getElementById("skewTermView");
+  const tableView = document.getElementById("skewTableView");
+  const seriesMenu = document.getElementById("skewSeries");
+  if (smileView) smileView.hidden = view !== "smile";
+  if (termView) termView.hidden = view !== "term";
+  if (tableView) tableView.hidden = view !== "table";
+  if (seriesMenu) seriesMenu.style.display = view === "smile" ? "" : "none";
+  onRedraw?.();
 }
 
 export function initSkewControls(onRedraw) {
@@ -290,6 +466,9 @@ export function initSkewControls(onRedraw) {
       onRedraw?.();
     });
   }
+  document.querySelectorAll(".skew-view-tab").forEach(btn => {
+    btn.addEventListener("click", () => setSkewView(btn.dataset.view, onRedraw));
+  });
   const syncSeriesLabel = () => {
     const active = ["call", "put", "iv"]
       .filter(key => skewSeriesVisible[key])

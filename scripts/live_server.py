@@ -15,7 +15,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, time as dt_time, timedelta
+from datetime import date, datetime, time as dt_time, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
+from bsm import years_to_expiry
 from exposure import find_expected_move_anchor, nearest_atm_iv
 from live_dashboard.data_store import DataStore
 from live_dashboard.greek_surface_service import GreekSurfaceService
@@ -51,6 +52,7 @@ from live_dashboard.time_utils import (
 )
 from mongo_store import MongoDatasetStore
 from render_gex_interactive import build_tenor_curves, load_multi_tenor_skew
+from skew_stats import attach_term_slope, compute_tenor_skew_stats
 from sources import yahoo
 
 load_dotenv()
@@ -72,6 +74,50 @@ GITHUB_SYNC_STATUS_PATH = PROJECT_ROOT / "data" / "github_sync_status.json"
 SNAPSHOT_SUBPROCESS_TIMEOUT_SECONDS = 90
 
 
+def _tenor_to_payload(tenor: dict, spot: float, dte_reference_day: str) -> dict:
+    """One tenor dict from build_tenor_curves -> the JSON-ready payload dict,
+    including delta-bucket skew stats (25Δ/10Δ skew, butterfly, skew slope).
+
+    Stat computation is best-effort: a bad tenor (e.g. too few liquid
+    strikes for delta interpolation) still yields the base curve fields with
+    the stats left at their None defaults, rather than dropping the tenor.
+    """
+    payload = {
+        "expiry": tenor["expiry"],
+        "dte": tenor["dte"],
+        "atm_iv": clean_value(tenor["atm_iv"]),
+        "atm_strike": clean_value(tenor.get("atm_strike")),
+        "color": tenor["color"],
+        "call": {
+            "strike": [clean_value(v) for v in tenor["call"]["strike"].tolist()],
+            "iv": [clean_value(v) for v in tenor["call"]["iv"].tolist()],
+        },
+        "put": {
+            "strike": [clean_value(v) for v in tenor["put"]["strike"].tolist()],
+            "iv": [clean_value(v) for v in tenor["put"]["iv"].tolist()],
+        },
+        "iv": {
+            "strike": [clean_value(v) for v in tenor["iv"]["strike"].tolist()],
+            "iv": [clean_value(v) for v in tenor["iv"]["iv"].tolist()],
+        },
+        "call_25d": None, "put_25d": None, "call_10d": None, "put_10d": None,
+        "skew_25d": None, "butterfly_25d": None, "skew_10d": None, "skew_slope": None,
+    }
+    try:
+        _, years = years_to_expiry(tenor["expiry"], date.fromisoformat(dte_reference_day))
+        stats = compute_tenor_skew_stats(
+            tenor["call"], tenor["put"], tenor.get("atm_strike"), tenor["atm_iv"], spot, years
+        )
+        for key, value in stats.items():
+            if isinstance(value, dict):
+                payload[key] = {k: clean_value(v) for k, v in value.items()}
+            else:
+                payload[key] = clean_value(value)
+    except Exception:
+        pass
+    return payload
+
+
 def skew_tenors_payload(ticker: str, spot: float, effective_day: str) -> list[dict]:
     """Multi-expiry skew curves for the live Volatility Skew panel, mirroring
     render_gex_interactive.build_volatility_skew_chart's multi-tenor branch."""
@@ -89,28 +135,8 @@ def skew_tenors_payload(ticker: str, spot: float, effective_day: str) -> list[di
         tenors = build_tenor_curves(raw, spot, dte_reference_day)
     except Exception:
         return []
-    payload = []
-    for tenor in tenors:
-        payload.append(
-            {
-                "expiry": tenor["expiry"],
-                "dte": tenor["dte"],
-                "atm_iv": clean_value(tenor["atm_iv"]),
-                "color": tenor["color"],
-                "call": {
-                    "strike": [clean_value(v) for v in tenor["call"]["strike"].tolist()],
-                    "iv": [clean_value(v) for v in tenor["call"]["iv"].tolist()],
-                },
-                "put": {
-                    "strike": [clean_value(v) for v in tenor["put"]["strike"].tolist()],
-                    "iv": [clean_value(v) for v in tenor["put"]["iv"].tolist()],
-                },
-                "iv": {
-                    "strike": [clean_value(v) for v in tenor["iv"]["strike"].tolist()],
-                    "iv": [clean_value(v) for v in tenor["iv"]["iv"].tolist()],
-                },
-            }
-        )
+    payload = [_tenor_to_payload(tenor, spot, dte_reference_day) for tenor in tenors]
+    attach_term_slope(payload)
     return payload
 
 
@@ -163,31 +189,12 @@ def skew_tenors_payload_for_summary(ticker: str, summary: dict) -> list[dict]:
     if selected.empty:
         return []
     try:
-        tenors = build_tenor_curves(selected, spot, str(capture_ts)[:10])
+        dte_reference_day = str(capture_ts)[:10]
+        tenors = build_tenor_curves(selected, spot, dte_reference_day)
     except Exception:
         return []
-    payload = []
-    for tenor in tenors:
-        payload.append(
-            {
-                "expiry": tenor["expiry"],
-                "dte": tenor["dte"],
-                "atm_iv": clean_value(tenor["atm_iv"]),
-                "color": tenor["color"],
-                "call": {
-                    "strike": [clean_value(v) for v in tenor["call"]["strike"].tolist()],
-                    "iv": [clean_value(v) for v in tenor["call"]["iv"].tolist()],
-                },
-                "put": {
-                    "strike": [clean_value(v) for v in tenor["put"]["strike"].tolist()],
-                    "iv": [clean_value(v) for v in tenor["put"]["iv"].tolist()],
-                },
-                "iv": {
-                    "strike": [clean_value(v) for v in tenor["iv"]["strike"].tolist()],
-                    "iv": [clean_value(v) for v in tenor["iv"]["iv"].tolist()],
-                },
-            }
-        )
+    payload = [_tenor_to_payload(tenor, spot, dte_reference_day) for tenor in tenors]
+    attach_term_slope(payload)
     return payload
 
 
@@ -1161,7 +1168,11 @@ def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subp
         if args.expiry:
             cmd += ["--expiry", args.expiry]
         if fetch_tenor:
-            cmd += ["--all-expiries", "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS)]
+            cmd += [
+                "--source", "insiderfinance",
+                "--all-expiries",
+                "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS),
+            ]
         return _run_snapshot_subprocess(cmd)
 
     cmd = [
@@ -1186,7 +1197,11 @@ def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subp
     if args.expiry:
         cmd += ["--expiry", args.expiry]
     if fetch_tenor:
-        cmd += ["--all-expiries", "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS)]
+        cmd += [
+            "--source", "insiderfinance",
+            "--all-expiries",
+            "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS),
+        ]
     return _run_snapshot_subprocess(cmd)
 
 
@@ -1294,7 +1309,10 @@ def collector(args: argparse.Namespace, state: LiveState, snapshot_service: Snap
             }
 
         pull_count += 1
-        fetch_tenor = env_flag("LIVE_ENABLE_TENOR_REFRESH", False) and pull_count % TENOR_REFRESH_EVERY_N_PULLS == 0
+        # Defaults on so the Volatility Skew panel's multi-expiry Term/Table
+        # data actually refreshes intraday; set LIVE_ENABLE_TENOR_REFRESH=0
+        # to opt back out of the extra InsiderFinance all-expiries pull.
+        fetch_tenor = env_flag("LIVE_ENABLE_TENOR_REFRESH", True) and pull_count % TENOR_REFRESH_EVERY_N_PULLS == 0
         snapshot_started = time.perf_counter()
         with state.lock:
             state.data_status["collector"] = {
