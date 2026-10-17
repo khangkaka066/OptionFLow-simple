@@ -12,7 +12,6 @@ export function drawSkew(rows, summary, tenors) {
   if (allTenors.length >= 1) {
     syncSkewExpiryOptions(allTenors);
     const tenor = selectedTenor(allTenors);
-    renderSkewStatCards(tenor);
     if (skewViewSelected === "term") {
       drawSkewTerm(allTenors);
     } else if (skewViewSelected === "table") {
@@ -22,7 +21,6 @@ export function drawSkew(rows, summary, tenors) {
     }
     return;
   }
-  renderSkewStatCards(null);
   if (skewViewSelected === "smile") drawSkewSingle(rows, summary);
 }
 
@@ -69,69 +67,6 @@ function syncSkewExpiryOptions(tenors) {
   }
 }
 
-function fmtSigned(value, decimals = 1, suffix = "") {
-  if (!Number.isFinite(Number(value))) return "--";
-  const n = Number(value);
-  const sign = n > 0 ? "+" : n < 0 ? "" : "";
-  return `${sign}${n.toFixed(decimals)}${suffix}`;
-}
-
-function setStatValueClass(el, value) {
-  if (!el) return;
-  el.classList.remove("positive", "negative");
-  if (!Number.isFinite(Number(value))) return;
-  if (Number(value) > 0) el.classList.add("positive");
-  else if (Number(value) < 0) el.classList.add("negative");
-}
-
-// InsiderFinance's exact formulas aren't published; these follow the
-// standard delta-bucket risk-reversal/butterfly convention computed
-// server-side in scripts/skew_stats.py, not a numeric clone of their widget.
-export function renderSkewStatCards(tenor) {
-  const atmIvEl = document.getElementById("skewStatAtmIv");
-  const atmStrikeEl = document.getElementById("skewStatAtmStrike");
-  const skew25El = document.getElementById("skewStat25dSkew");
-  const skew25SubEl = document.getElementById("skewStat25dSkewSub");
-  const fly25El = document.getElementById("skewStat25dFly");
-  const skew10El = document.getElementById("skewStat10dSkew");
-  const slopeEl = document.getElementById("skewStatSlope");
-  const termEl = document.getElementById("skewStatTermSlope");
-  const termSubEl = document.getElementById("skewStatTermSub");
-  if (!atmIvEl) return;
-
-  if (!tenor) {
-    [atmIvEl, skew25El, fly25El, skew10El, slopeEl, termEl].forEach(el => { if (el) el.textContent = "--"; });
-    if (atmStrikeEl) atmStrikeEl.textContent = "Strike --";
-    if (skew25SubEl) skew25SubEl.textContent = "--";
-    if (termSubEl) termSubEl.textContent = "--";
-    return;
-  }
-
-  atmIvEl.textContent = Number.isFinite(Number(tenor.atm_iv)) ? `${(Number(tenor.atm_iv) * 100).toFixed(1)}%` : "--";
-  atmStrikeEl.textContent = Number.isFinite(Number(tenor.atm_strike)) ? `Strike ${Number(tenor.atm_strike).toFixed(0)}` : "Strike --";
-
-  skew25El.textContent = fmtSigned(tenor.skew_25d, 1, " pts");
-  setStatValueClass(skew25El, tenor.skew_25d);
-  if (Number.isFinite(Number(tenor.skew_25d)) && tenor.put_25d && tenor.call_25d) {
-    const tilt = Number(tenor.skew_25d) > 0 ? "Puts rich, downside bid" : "Calls rich, upside bid";
-    skew25SubEl.textContent = `${tilt} · ${tenor.put_25d.strike.toFixed(0)}P ${(tenor.put_25d.iv * 100).toFixed(1)}% vs ${tenor.call_25d.strike.toFixed(0)}C ${(tenor.call_25d.iv * 100).toFixed(1)}%`;
-  } else {
-    skew25SubEl.textContent = "Not enough liquid strikes";
-  }
-
-  fly25El.textContent = fmtSigned(tenor.butterfly_25d, 1, " pts");
-  setStatValueClass(fly25El, tenor.butterfly_25d);
-
-  skew10El.textContent = fmtSigned(tenor.skew_10d, 1, " pts");
-  setStatValueClass(skew10El, tenor.skew_10d);
-
-  slopeEl.textContent = fmtSigned(tenor.skew_slope, 2);
-  setStatValueClass(slopeEl, tenor.skew_slope);
-
-  termEl.textContent = fmtSigned(tenor.term_slope, 1, " pts");
-  setStatValueClass(termEl, tenor.term_slope);
-  termSubEl.textContent = tenor.term_slope_label || "Term flat";
-}
 
 function nearestSkewPoint(trace, strike) {
   const xs = trace.x || [];

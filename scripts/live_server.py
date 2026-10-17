@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import date, datetime, time as dt_time, timedelta
@@ -26,17 +27,22 @@ from dotenv import load_dotenv
 from bsm import years_to_expiry
 from exposure import find_expected_move_anchor, nearest_atm_iv
 from live_dashboard.data_store import DataStore
+from live_dashboard.dealer_verdict import compute_dealer_verdict
+from live_dashboard.flow_context import compute_flow_context, compute_greeks_structure, compute_level_map
+from live_dashboard.scenario import compute_scenario
 from live_dashboard.greek_surface_service import GreekSurfaceService
 from live_dashboard.http_server import configure_handler
 from live_dashboard.intraday_file_cache import IntradayFileCache
 from live_dashboard.intraday_service import IntradayService
-from live_dashboard.key_level_summary import compute_key_level_summary
+from live_dashboard.key_level_summary import KEY_LEVEL_DISTANCE_THRESHOLD, compute_key_level_summary
 from live_dashboard.market_data import (
     alpaca_candles_collector,
     apply_futures_basis,
     candles_for_session,
     fetch_day_high_low,
 )
+from live_dashboard.net_drift_service import NetDriftService
+from live_dashboard.xynth_flow_service import XynthFlowService
 from live_dashboard.serialization import clean_records, clean_value
 from live_dashboard.snapshot_file_cache import SnapshotFileCache
 from live_dashboard.snapshot_service import SnapshotService
@@ -46,12 +52,14 @@ from live_dashboard.time_utils import (
     NY_TZ,
     VN_TZ,
     collection_start_utc,
+    key_level_start_utc,
     market_session_utc,
     session_for_trading_date,
     set_collect_start_offset_min,
 )
 from mongo_store import MongoDatasetStore
 from render_gex_interactive import build_tenor_curves, load_multi_tenor_skew
+from retain_recent_data import run_retention
 from skew_stats import attach_term_slope, compute_tenor_skew_stats
 from sources import yahoo
 
@@ -64,6 +72,7 @@ DAILY_SNAPSHOT_SCRIPT = SCRIPT_ROOT / "daily_qqq_snapshot.py"
 DATA_ROOT = PROJECT_ROOT / "data" / "options"
 DATA_STORE = DataStore(DATA_ROOT, ny_tz=NY_TZ, vn_tz=VN_TZ)
 IV_RANK_HISTORY_PATH = DATA_ROOT / "iv_rank_history.csv"
+IV_RANK_ARCHIVE_ROOT = DATA_ROOT / "iv_rank"
 INTRADAY_CACHE_ROOT = PROJECT_ROOT / "data" / "cache" / "intraday"
 SNAPSHOT_CACHE_ROOT = PROJECT_ROOT / "data" / "cache" / "snapshot"
 GITHUB_SYNC_STATUS_PATH = PROJECT_ROOT / "data" / "github_sync_status.json"
@@ -344,6 +353,10 @@ def latest_history_snapshot(ticker: str) -> tuple[Path, dict] | None:
     return DATA_STORE.latest_history_snapshot(ticker)
 
 
+def latest_history_snapshot_before(ticker: str, before_ny_date: str) -> tuple[Path, dict] | None:
+    return DATA_STORE.latest_history_snapshot_before(ticker, before_ny_date)
+
+
 def volume_totals(rows: pd.DataFrame | list[dict]) -> tuple[float, float]:
     frame = pd.DataFrame(rows)
     if frame.empty:
@@ -395,6 +408,15 @@ def chain_payload(rows: list[dict]) -> list[dict]:
 
 def build_iv_rank_history_rows(ticker: str) -> list[dict]:
     rows_by_day: dict[str, dict] = {}
+    archive_path = IV_RANK_ARCHIVE_ROOT / f"{ticker.upper()}.json"
+    try:
+        archived_rows = json.loads(archive_path.read_text(encoding="utf-8"))
+        for row in archived_rows if isinstance(archived_rows, list) else []:
+            day = row.get("date") if isinstance(row, dict) else None
+            if day and row.get("avg_iv_pct") is not None:
+                rows_by_day[str(day)] = row
+    except (FileNotFoundError, ValueError, OSError):
+        pass
     for path in sorted(DATA_ROOT.glob(f"*/{ticker.upper()}_*_summary.json")):
         if len(path.stem.split("_")) != 3:
             continue
@@ -461,16 +483,19 @@ def build_iv_rank_history_rows(ticker: str) -> list[dict]:
     return clean_records(rows)
 
 
-def write_iv_rank_history_csv(rows: list[dict]) -> None:
+def write_iv_rank_archive(ticker: str, rows: list[dict]) -> None:
     if not rows:
         return
-    columns = ["date", "ticker", "snapshot_utc", "snapshot_vn", "spot", "atm_iv_pct", "iv_rank_pct", "iv_source"]
-    df = pd.DataFrame(rows)
-    for col in columns:
-        if col not in df:
-            df[col] = None
-    IV_RANK_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    df.loc[:, columns].to_csv(IV_RANK_HISTORY_PATH, index=False)
+    IV_RANK_ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
+    path = IV_RANK_ARCHIVE_ROOT / f"{ticker.upper()}.json"
+    fd, temp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(clean_records(rows), handle, allow_nan=False)
+        os.replace(temp_name, path)
+    finally:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
 
 
 def load_history(ticker: str, status: dict | None = None) -> list[dict]:
@@ -490,7 +515,7 @@ def load_history(ticker: str, status: dict | None = None) -> list[dict]:
             mongo_error = str(exc)
             source = "mongo_error"
             print(f"[mongo] iv-rank history unavailable: {exc}", flush=True)
-    write_iv_rank_history_csv(rows)
+    write_iv_rank_archive(ticker, rows)
     if status is not None:
         status["iv_rank"] = {
             "source": source,
@@ -512,7 +537,17 @@ def seed_session_data(ticker: str, session: dict, window: float) -> tuple[list[d
     points: list[dict] = []
     ribbon: list[dict] = []
     seen_times: set[str] = set()
+    # Each file lives under a date-named folder (`{date}/history/...`); an
+    # overnight VN session spans at most the two calendar dates the open/close
+    # timestamps fall on locally, so skip opening any other day's parquet
+    # instead of reading and discarding every historical day on every restart.
+    candidate_folder_dates = {
+        open_ts.tz_convert(VN_TZ).date().isoformat(),
+        close_ts.tz_convert(VN_TZ).date().isoformat(),
+    }
     for summary_history_path in history_summary_paths(ticker):
+        if summary_history_path.parent.parent.name not in candidate_folder_dates:
+            continue
         try:
             summaries = pd.read_parquet(summary_history_path)
         except Exception:
@@ -629,24 +664,16 @@ def seed_prev_day_eod_summary(
     populated when `window` is given; they back the Key Level Summary
     panel's EOD-basis OI/IV confluence check.
     """
-    latest_history = latest_history_snapshot(ticker)
+    latest_history = latest_history_snapshot_before(ticker, today_trading_date)
     if latest_history is not None:
-        summary_history_path, _summary = latest_history
-        summaries = pd.read_parquet(summary_history_path)
-        summaries = summaries[summaries["ticker"].astype(str).str.upper() == ticker.upper()].copy()
-        summaries["_snapshot_ts"] = pd.to_datetime(summaries["snapshot_utc"], errors="coerce", utc=True)
-        summaries = summaries[summaries["_snapshot_ts"].notna()].copy()
-        summaries["_ny_date"] = summaries["_snapshot_ts"].dt.tz_convert(NY_TZ).dt.date.astype(str)
-        summaries = summaries[summaries["_ny_date"] < today_trading_date].sort_values("snapshot_utc")
-        if not summaries.empty:
-            summary = summary_from_history_row(summaries.iloc[-1].to_dict())
-            by_strike: list[dict] = []
-            if window is not None:
-                try:
-                    by_strike, _gex_snapshot = rows_for_history_snapshot(summary_history_path, summary, window)
-                except Exception:
-                    by_strike = []
-            return summary, by_strike
+        summary_history_path, summary = latest_history
+        by_strike: list[dict] = []
+        if window is not None:
+            try:
+                by_strike, _gex_snapshot = rows_for_history_snapshot(summary_history_path, summary, window)
+            except Exception:
+                by_strike = []
+        return summary, by_strike
     candidates: list[tuple[pd.Timestamp, dict, Path]] = []
     for path in sorted(DATA_ROOT.glob(f"*/{ticker.upper()}_*_*_summary.json")):
         if len(path.stem.split("_")) != 4:
@@ -1142,6 +1169,13 @@ def load_latest(ticker: str, window: float) -> tuple[dict, dict, list[dict], lis
 
 TENOR_REFRESH_EVERY_N_PULLS = 5
 TENOR_REFRESH_HORIZON_DAYS = 10
+# Key Level Summary's DEX-flip search needs a much wider strike band than the
+# GEX/DEX/OI panels' own chart window (args.window, e.g. +/-14): those panels
+# intentionally zoom in near spot, but a real net_dex zero-crossing can sit
+# well outside that band, and clipping to it made compute_all_flips find
+# nothing near spot on many days (reporting Key Level as NA) when a
+# meaningful flip existed just outside the narrow chart range.
+KEY_LEVEL_EOD_WINDOW = 150.0
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -1240,37 +1274,58 @@ def subprocess_error_tail(result: subprocess.CompletedProcess, *, max_lines: int
     return f"exit {result.returncode}"
 
 
-KEY_LEVEL_DISTANCE_THRESHOLD = 0.005
+def refresh_dealer_verdict(state: LiveState, ticker: str, window: float) -> None:
+    """Recompute state.dealer_verdict once per trading day.
+
+    Reads OTM-IV direction off the two prior sessions plus today's spot at
+    the first snapshot since 9:00 ET (collection_start_utc) — see
+    live_dashboard.dealer_verdict for the decision rule. Cheap to call every
+    collector tick once resolved: it only re-reads session history while
+    spot_900et is still unavailable (e.g. right at 9:00 ET, before the first
+    post-open snapshot lands), then freezes for the rest of the day.
+    """
+    stale = (
+        state.dealer_verdict is None
+        or state.dealer_verdict.get("trading_date") != state.session["trading_date"]
+        or state.dealer_verdict.get("spot_900et") is None
+    )
+    if not stale:
+        return
+    try:
+        state.dealer_verdict = compute_dealer_verdict(
+            ticker, state.session,
+            session_for_trading_date=session_for_trading_date,
+            seed_session_data=seed_session_data,
+            window=window,
+        )
+    except Exception as exc:
+        state.dealer_verdict = {"status": "error", "error": str(exc), "trading_date": state.session["trading_date"]}
 
 
-def refresh_key_level_summary(state: LiveState) -> None:
+def refresh_key_level_summary(state: LiveState, ticker: str, window: float) -> None:
     """Recompute state.key_level_summary from whichever basis is valid right now.
 
-    Gated to "pending" until collection_start_utc (09:00 NY) so the panel
+    Gated to "pending" until 09:15 NY so the panel
     never shows a partial/early read. After that, EOD DEX/GEX/OI x IV stays
     the basis as long as live spot is within KEY_LEVEL_DISTANCE_THRESHOLD of
     the EOD reference spot; once spot has moved further away, the same
     algorithm is recomputed off today's live intraday summary/by-strike
     instead, so the read stays valid.
     """
-    collect_start = pd.Timestamp(state.session["collection_start_utc"])
-    if pd.Timestamp.now(tz="UTC") < collect_start:
+    level_start = pd.Timestamp(key_level_start_utc(state.session["market_open_utc"]))
+    if pd.Timestamp.now(tz="UTC") < level_start:
         state.key_level_summary = {"status": "pending"}
+        state.dealer_verdict = None
         return
-    live_spot = None
-    if state.latest_summary:
-        try:
-            live_spot = float(state.latest_summary.get("spot"))
-        except (TypeError, ValueError):
-            live_spot = None
-    eod_spot = None
-    if state.levels_summary:
-        try:
-            eod_spot = float(state.levels_summary.get("spot"))
-        except (TypeError, ValueError):
-            eod_spot = None
+    live_spot = pd.to_numeric(state.latest_summary.get("spot"), errors="coerce") if state.latest_summary else float("nan")
+    eod_spot = pd.to_numeric(state.levels_summary.get("spot"), errors="coerce") if state.levels_summary else float("nan")
+    live_spot = float(live_spot) if pd.notna(live_spot) else None
+    eod_spot = float(eod_spot) if pd.notna(eod_spot) else None
     distance_pct = abs(live_spot - eod_spot) / eod_spot if live_spot is not None and eod_spot else None
-    if distance_pct is not None and distance_pct > KEY_LEVEL_DISTANCE_THRESHOLD:
+    use_intraday = state.latest_summary and (not state.levels_summary or distance_pct is not None and distance_pct > KEY_LEVEL_DISTANCE_THRESHOLD)
+    basis_summary = state.latest_summary if use_intraday else state.levels_summary
+    basis_by_strike = state.by_strike if use_intraday else state.levels_by_strike
+    if use_intraday:
         state.key_level_summary = compute_key_level_summary(
             state.latest_summary, state.by_strike, live_spot, basis="intraday",
             threshold_pct=KEY_LEVEL_DISTANCE_THRESHOLD,
@@ -1280,6 +1335,36 @@ def refresh_key_level_summary(state: LiveState) -> None:
             state.levels_summary, state.levels_by_strike, live_spot, basis="eod",
             threshold_pct=KEY_LEVEL_DISTANCE_THRESHOLD,
         )
+    refresh_dealer_verdict(state, ticker, window)
+    state.key_level_summary["dealer_verdict"] = state.dealer_verdict
+
+    flow_ctx = compute_flow_context(
+        dealer_verdict=state.dealer_verdict,
+        expected_move_anchor=state.expected_move_anchor,
+        key_levels=state.key_level_summary.get("key_levels") or [],
+        by_strike=basis_by_strike,
+        candles=state.candles,
+        spot=live_spot,
+    )
+    greeks = compute_greeks_structure(
+        summary=basis_summary,
+        by_strike=basis_by_strike,
+        spot=flow_ctx.get("spot_ref"),
+        skew_tenors=state.skew_tenors,
+    )
+    level_map = compute_level_map(
+        spot=flow_ctx.get("spot_ref"),
+        spot_time=state.dealer_verdict.get("spot_900et_time") if state.dealer_verdict else None,
+        strike_ref=flow_ctx.get("strike_ref"),
+        flow_context=flow_ctx,
+        greeks_structure=greeks,
+    )
+    state.key_level_summary["flow_context"] = flow_ctx
+    state.key_level_summary["greeks_structure"] = greeks
+    state.key_level_summary["level_map"] = level_map
+    state.key_level_summary["scenario"] = compute_scenario(
+        dealer_verdict=state.dealer_verdict, level_map=level_map, spot=flow_ctx.get("spot_ref"),
+    )
 
 
 def collector(args: argparse.Namespace, state: LiveState, snapshot_service: SnapshotService | None = None) -> None:
@@ -1387,7 +1472,7 @@ def collector(args: argparse.Namespace, state: LiveState, snapshot_service: Snap
                             float(summary.get("spot") or 0.0),
                             summary.get("effective_snapshot_date") or summary.get("requested_snapshot_date") or "",
                         )
-                    refresh_key_level_summary(state)
+                    refresh_key_level_summary(state, args.ticker, args.window)
                     state.latest_error = None
                     state.successes += 1
                 except Exception as exc:
@@ -1435,7 +1520,17 @@ def levels_collector(
     can seed from today's actual close), while the displayed
     levels_summary_secondary stays frozen at the previous session's EOD
     (seeded once in main(), including its one-time NQ1! futures basis) with
-    only its live 1D Min/Max refreshed in place on top of that frozen base."""
+    only its live 1D Min/Max refreshed in place on top of that frozen base.
+
+    If `ticker` has never been collected before (no prior-day snapshot on
+    disk to seed from in main()), levels_summary_secondary starts out None
+    and would otherwise stay stuck on "waiting for first snapshot..." for
+    the lifetime of this process - main()'s seed only runs once at startup,
+    it never retries. The first time this loop lands a successful poll with
+    the summary still None, it bootstraps the panel from that live snapshot
+    (tagged unlocked/LIVE, since it isn't a true frozen EOD close yet) so
+    the panel shows something; tomorrow's restart will seed a real EOD
+    close from today's now-persisted history, same as any other ticker."""
     secondary_args = copy.copy(base_args)
     secondary_args.ticker = ticker
     secondary_args.expiry = None
@@ -1447,7 +1542,7 @@ def levels_collector(
         delay = next_run - time.monotonic()
         if delay > 0:
             time.sleep(delay)
-        run_snapshot(secondary_args, fetch_tenor=False)
+        result = run_snapshot(secondary_args, fetch_tenor=False)
         with state.lock:
             summary = state.levels_summary_secondary
         if summary is not None:
@@ -1456,6 +1551,15 @@ def levels_collector(
                 summary["one_day_min"] = day_low
             if day_high is not None:
                 summary["one_day_max"] = day_high
+        elif result.returncode == 0:
+            bootstrapped = latest_history_snapshot(ticker)
+            if bootstrapped is not None:
+                _path, fresh_summary = bootstrapped
+                apply_futures_basis(fresh_summary, futures_ticker)
+                with state.lock:
+                    if state.levels_summary_secondary is None:
+                        state.levels_summary_secondary = fresh_summary
+                        state.levels_locked_secondary = False
         next_run += base_args.interval_seconds
 
 
@@ -1463,12 +1567,13 @@ def levels_collector(
 def main() -> None:
     args = parse_args()
     pull_github_updates_on_startup(not args.no_github_pull)
+    run_retention(apply=True, verbose=False)
     set_collect_start_offset_min(args.collect_start_offset_min)
     state = LiveState(market_session_utc())
     state.session["collection_start_utc"] = collection_start_utc(state.session["market_open_utc"])
     state.points, state.gex_ribbon = seed_session_data(args.ticker, state.session, args.window)
     state.levels_summary, state.levels_by_strike = seed_prev_day_eod_summary(
-        args.ticker, state.session["trading_date"], args.window
+        args.ticker, state.session["trading_date"], KEY_LEVEL_EOD_WINDOW
     )
     state.levels_locked = True
     collect_start_ts = pd.Timestamp(state.session["collection_start_utc"])
@@ -1483,7 +1588,7 @@ def main() -> None:
     )
     if state.skew_summary:
         state.skew_tenors = skew_tenors_payload_for_summary(args.ticker, state.skew_summary)
-    refresh_key_level_summary(state)
+    refresh_key_level_summary(state, args.ticker, args.window)
     state.secondary_ticker = args.secondary_ticker.upper() if args.secondary_ticker else ""
     state.secondary_futures_ticker = (args.secondary_futures_ticker or "").upper()
     if state.secondary_ticker:
@@ -1511,9 +1616,13 @@ def main() -> None:
         latest_summary_path=latest_summary_path,
         vn_tz=VN_TZ,
         file_cache=SnapshotFileCache(SNAPSHOT_CACHE_ROOT),
+        key_level_window=KEY_LEVEL_EOD_WINDOW,
+        seed_prev_day_eod_summary=seed_prev_day_eod_summary,
     )
 
     greek_surface_service = GreekSurfaceService(DATA_STORE)
+    net_drift_service = NetDriftService()
+    xynth_flow_service = XynthFlowService(PROJECT_ROOT / "data" / "xynth", args.ticker)
 
     intraday_service = IntradayService(
         session_for_trading_date=session_for_trading_date,
@@ -1541,6 +1650,8 @@ def main() -> None:
         snapshot_service=snapshot_service,
         intraday_service=intraday_service,
         greek_surface_service=greek_surface_service,
+        net_drift_service=net_drift_service,
+        xynth_flow_service=xynth_flow_service,
         apply_secondary_basis=apply_secondary_basis_for_request,
         cors_allowed_origin=os.getenv("LIVE_API_CORS_ORIGIN", "*"),
         greek_surface_enabled=os.getenv("DISABLE_GREEK_SURFACE", "0") != "1",
@@ -1562,6 +1673,17 @@ def main() -> None:
         daemon=True,
     )
     candles_worker.start()
+
+    def collect_xynth_flow() -> None:
+        while state.running:
+            xynth_flow_service.refresh()
+            for _ in range(60):
+                if not state.running:
+                    return
+                time.sleep(1)
+
+    xynth_worker = threading.Thread(target=collect_xynth_flow, daemon=True)
+    xynth_worker.start()
 
     server = ThreadingHTTPServer((args.host, args.port), handler_class)
     url = f"http://{args.host}:{args.port}"

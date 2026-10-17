@@ -52,6 +52,16 @@ def sample_volume(ticker="QQQ"):
 
 
 class InsiderFinanceSnapshotTests(unittest.TestCase):
+    def test_select_spot_prefers_cboe_over_stale_insiderfinance(self):
+        spot, source = snapshot.select_spot(751.81, 751.56, 742.03, 742.03)
+        self.assertEqual(spot, 751.81)
+        self.assertEqual(source, "cboe")
+
+    def test_select_spot_falls_back_when_cboe_is_invalid(self):
+        spot, source = snapshot.select_spot(None, 751.56, 742.03, 742.03)
+        self.assertEqual(spot, 751.56)
+        self.assertEqual(source, "yahoo")
+
     def test_api_keeps_contracts_with_zero_greeks(self):
         raw = sample_chain().raw
         raw["options"][0].update({"gamma": 0, "delta": 0})
@@ -178,7 +188,8 @@ class InsiderFinanceSnapshotTests(unittest.TestCase):
                     snapshot.main()
                 summary = json.loads((Path(tmp) / "2026-09-24" / f"{ticker}_{expiry}_summary.json").read_text())
                 self.assertEqual(summary["chain_source"], "insiderfinance")
-                self.assertEqual(summary["spot"], 500.0)
+                self.assertEqual(summary["spot"], 999.0 if volume_available else 500.0)
+                self.assertEqual(summary["spot_source"], "cboe" if volume_available else "insiderfinance")
                 self.assertEqual(summary["effective_snapshot_date"], "2026-09-23")
                 self.assertEqual(summary["volume_source"], "cboe" if volume_available else "unavailable")
                 self.assertEqual(summary["volume_cboe_count"], (4 if expiry == "ALL" else 2) if volume_available else 0)

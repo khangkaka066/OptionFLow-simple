@@ -6,7 +6,9 @@ from typing import Any
 
 import pandas as pd
 
+from .key_level_summary import KEY_LEVEL_DISTANCE_THRESHOLD, compute_key_level_summary
 from .snapshot_file_cache import SnapshotFileCache
+from .time_utils import key_level_start_utc
 
 
 class SnapshotService:
@@ -31,7 +33,11 @@ class SnapshotService:
         latest_summary_path: Callable[[str], Any],
         vn_tz: Any,
         file_cache: SnapshotFileCache | None = None,
+        key_level_window: float = 150.0,
+        seed_prev_day_eod_summary: Callable[[str, str, float], tuple[dict | None, list[dict]]] | None = None,
     ) -> None:
+        self._key_level_window = key_level_window
+        self._seed_prev_day_eod_summary = seed_prev_day_eod_summary
         self._list_trading_days = list_trading_days
         self._latest_snapshot_id_for_trading_day = latest_snapshot_id_for_trading_day
         self._parse_history_snapshot_id = parse_history_snapshot_id
@@ -152,6 +158,32 @@ class SnapshotService:
             summary["snapshot_vn"] = snapshot_vn.tz_convert(self._vn_tz).isoformat()
         session = self._session_from_summary(summary)
         candles, candles_error = self._candles_for_session(ticker, session)
+        # Replay day D against D-1's close, then switch to the selected
+        # snapshot's intraday data when price has moved beyond the same
+        # threshold used by the live panel.
+        key_level_summary = {"status": "pending"}
+        snapshot_utc = pd.to_datetime(summary.get("snapshot_utc"), errors="coerce", utc=True)
+        market_open_utc = session.get("market_open_utc")
+        level_is_active = (
+            bool(market_open_utc)
+            and pd.notna(snapshot_utc)
+            and snapshot_utc >= pd.Timestamp(key_level_start_utc(market_open_utc))
+        )
+        if self._seed_prev_day_eod_summary is not None and level_is_active:
+            picked_day = summary.get("effective_snapshot_date") or summary.get("requested_snapshot_date")
+            eod_summary, eod_rows = self._seed_prev_day_eod_summary(ticker, picked_day, self._key_level_window)
+            live_spot = pd.to_numeric(summary.get("spot"), errors="coerce")
+            eod_spot = pd.to_numeric(eod_summary.get("spot"), errors="coerce") if eod_summary else float("nan")
+            use_intraday = not eod_summary or (
+                pd.notna(live_spot) and pd.notna(eod_spot) and eod_spot > 0
+                and abs(live_spot - eod_spot) / eod_spot > KEY_LEVEL_DISTANCE_THRESHOLD
+            )
+            key_level_summary = compute_key_level_summary(
+                summary if use_intraday else eod_summary,
+                rows if use_intraday else eod_rows,
+                live_spot if pd.notna(live_spot) else None,
+                basis="intraday" if use_intraday else "eod",
+            )
         return {
             "points": points,
             "gex_ribbon": ribbon,
@@ -162,6 +194,7 @@ class SnapshotService:
             "skew_tenors": self._skew_tenors_payload_for_summary(ticker, summary),
             "latest_summary": summary,
             "levels_summary": summary,
+            "key_level_summary": key_level_summary,
             "latest_error": None,
             "running": False,
             "successes": 0,

@@ -9,6 +9,7 @@ import pandas as pd
 NY_TZ = ZoneInfo("America/New_York")
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 DEFAULT_COLLECT_START_OFFSET_MIN = 30.0
+KEY_LEVEL_START_OFFSET_MIN = 15.0
 
 _collect_start_offset_min = DEFAULT_COLLECT_START_OFFSET_MIN
 
@@ -51,3 +52,9 @@ def collection_start_utc(market_open_utc: str, offset_minutes: float | None = No
     offset = _collect_start_offset_min if offset_minutes is None else offset_minutes
     open_ts = pd.Timestamp(market_open_utc)
     return (open_ts - pd.Timedelta(minutes=offset)).isoformat()
+
+
+def key_level_start_utc(market_open_utc: str) -> str:
+    """Return the 09:15 ET activation time for the Key Level Summary."""
+    open_ts = pd.Timestamp(market_open_utc)
+    return (open_ts - pd.Timedelta(minutes=KEY_LEVEL_START_OFFSET_MIN)).isoformat()

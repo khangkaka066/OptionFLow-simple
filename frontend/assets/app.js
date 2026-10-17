@@ -9,23 +9,20 @@ import { drawOi, drawOiIv } from "./oi.js";
 import { drawExposure } from "./exposure.js";
 import { drawSkew, initSkewControls } from "./skew.js";
 import { drawGexRibbon, heatState, initHeatTrackerControls } from "./heat-tracker.js";
-import { createSurfacePanel } from "./greek-surface.js";
-
-const exposureSurfacePanel = createSurfacePanel({
-  idPrefix: "exposure",
-  defaultGreek: "gex",
-  defaultMode: "net",
-  hasModeSelect: true,
-  hasRangeSelect: true,
-});
-const greekSurfacePanel = createSurfacePanel({
-  idPrefix: "rawgreek",
-  defaultGreek: "gamma",
-  defaultMode: "raw",
-});
-import { drawFlow, drawFlowTracker, flowState, initFlowControls, initTrackerControls, trackerState } from "./flow-panels.js";
+import { initHeatLadder, refreshHeatLadder } from "./heat-ladder.js";
+import { drawFlow, flowState, initFlowControls } from "./flow-panels.js";
+import { drawNetDrift, initNetDrift, refreshNetDrift } from "./net-drift.js";
+import { drawXynthFlow, refreshXynthFlow } from "./xynth-flow.js";
 
 let latestState = null;
+let previousFlowState = null;
+let previousFlowRequest = null;
+let previousFlowAttempted = false;
+
+function hasCurrentFlowData(state) {
+  const open = new Date(state.session?.market_open_utc).getTime();
+  return Number.isFinite(open) && (state.points || []).some(point => new Date(point.time).getTime() >= open);
+}
 let lastChartKey = "";
 let lastHeatLiveRefreshAt = 0;
 const HEAT_LIVE_REFRESH_MS = 60_000;
@@ -33,7 +30,6 @@ const HEAT_LIVE_REFRESH_MS = 60_000;
 function resetChartLocks() {
   lastChartKey = "";
   if (typeof flowState !== "undefined") flowState.autoFollow = true;
-  if (typeof trackerState !== "undefined") trackerState.autoFollow = true;
   if (typeof heatState !== "undefined") heatState.autoFollow = true;
 }
 
@@ -108,7 +104,7 @@ loadAccentColors();
 
 initFlowControls(() => latestState);
 
-initTrackerControls(() => latestState);
+initNetDrift(() => latestState?.latest_summary?.ticker || "QQQ");
 
 const exposurePanelMetric = { gex: "net_gex", dex: "net_dex" };
 const EXPOSURE_PANEL_STORAGE_KEY = { gex: "qqqExposurePanelGex", dex: "qqqExposurePanelDex" };
@@ -149,8 +145,7 @@ function initExposureTabs() {
 }
 
 initHeatTrackerControls(refreshHeatPanelPayload);
-exposureSurfacePanel.init(() => latestState);
-greekSurfacePanel.init(() => latestState);
+initHeatLadder(() => heatState.ticker || latestState?.latest_summary?.ticker || "QQQ");
 initExposureTabs();
 
 initSkewControls(() => {
@@ -158,17 +153,17 @@ initSkewControls(() => {
 });
 
 const panelDayState = {
-  levels: "live", ivRank: "live", skew: "live", oiIv: "live", oi: "live", exposureGex: "live", exposureDex: "live", heat: "live", em: "live"
+  levels: "live", keyLevel: "live", ivRank: "live", skew: "live", oiIv: "live", oi: "live", exposureGex: "live", exposureDex: "live", heat: "live", em: "live"
 };
 const panelPayload = {
-  levels: null, ivRank: null, skew: null, oiIv: null, oi: null, exposureGex: null, exposureDex: null, heat: null, em: null
+  levels: null, keyLevel: null, ivRank: null, skew: null, oiIv: null, oi: null, exposureGex: null, exposureDex: null, heat: null, em: null
 };
 function drawLevelsPanel() {
   renderLevelsPanel({latestState, panelDayState, panelPayload});
 }
 
 function drawKeyLevelPanel() {
-  renderKeyLevelPanel({latestState});
+  renderKeyLevelPanel({latestState, panelDayState, panelPayload});
 }
 
 function drawIvRankPanel() {
@@ -327,6 +322,9 @@ function initPanelDatePickers() {
     ]);
     panelPayload.levels = { primary, secondary };
   });
+  bindPanelDatePicker("keyLevel", "keyLevelDate", async value => {
+    panelPayload.keyLevel = await fetchDaySnapshot(latestState?.latest_summary?.ticker || "QQQ", "day:" + value);
+  });
   bindPanelDatePicker("ivRank", "ivRankDate", async value => {
     panelPayload.ivRank = await fetchDaySnapshot(latestState?.latest_summary?.ticker || "QQQ", "day:" + value);
   });
@@ -357,24 +355,45 @@ initKeyLevelCopyControls();
 initPanelDatePickers();
 
 function drawAll(state) {
-  drawFlow(state.points || [], state.session || null, state.candles || []);
-  drawFlowTracker(state.points || [], state.session || null);
+  const flowData = hasCurrentFlowData(state) ? state : (previousFlowState || state);
+  const flowSession = document.getElementById("volatilityFlowSession");
+  if (flowSession) flowSession.textContent = flowData.session?.trading_date ? `Session ${flowData.session.trading_date} ET` : "";
+  drawFlow(flowData.points || [], flowData.session || null, flowData.candles || []);
   redrawPinnablePanels();
-  exposureSurfacePanel.refresh(state).catch(err => {
-    document.getElementById("status").textContent = "Exposure Surface error: " + err.message;
-  });
-  greekSurfacePanel.refresh(state).catch(err => {
-    document.getElementById("status").textContent = "Greek Surface error: " + err.message;
-  });
+
 }
 
 async function update() {
   const res = await fetch(apiUrl("/api/state?ts=" + Date.now()));
   const state = await res.json();
   latestState = state;
+  refreshNetDrift(state.latest_summary?.ticker || "QQQ");
+  refreshHeatLadder();
+  refreshXynthFlow();
+  if (!hasCurrentFlowData(state) && !previousFlowState && !previousFlowRequest && !previousFlowAttempted) {
+    previousFlowAttempted = true;
+    previousFlowRequest = (async () => {
+      const ticker = state.latest_summary?.ticker || "QQQ";
+      const response = await fetch(apiUrl("/api/history?ticker=" + encodeURIComponent(ticker)));
+      const history = await response.json();
+      const previous = (history.snapshots || [])
+        .filter(day => day.trading_date < state.session?.trading_date)
+        .sort((a, b) => b.trading_date.localeCompare(a.trading_date))[0];
+      if (previous) previousFlowState = await fetchIntradaySnapshot(ticker, previous.trading_date);
+      lastChartKey = "";
+    })().catch(err => {
+      document.getElementById("status").textContent = "Previous Volatility Flow: " + err.message;
+    }).finally(() => { previousFlowRequest = null; });
+    await previousFlowRequest;
+  }
+  const requestedDate = state.latest_summary?.requested_snapshot_date;
+  const sourceDate = state.latest_summary?.effective_snapshot_date;
   const status = [
     state.running ? "Running" : "Stopped",
     `${state.successes} ok / ${state.failures} failed`,
+    requestedDate && sourceDate && requestedDate !== sourceDate
+      ? `Options source ${sourceDate} (requested ${requestedDate})`
+      : null,
     state.latest_error ? "Last error: " + state.latest_error : null,
     state.next_fetch ? "Next fetch: " + new Date(state.next_fetch).toLocaleTimeString() : null,
   ].filter(Boolean).join(" · ");
@@ -388,14 +407,7 @@ async function update() {
   const latestCandle = candles.length ? candles[candles.length - 1].t : "";
   const chartKey = [
     heatState.ticker || "",
-    exposureSurfacePanel.state.ticker || "",
-    exposureSurfacePanel.state.greek || "",
-    exposureSurfacePanel.state.mode || "",
-    exposureSurfacePanel.state.range || "",
-    exposureSurfacePanel.state.date || "",
-    greekSurfacePanel.state.ticker || "",
-    greekSurfacePanel.state.greek || "",
-    greekSurfacePanel.state.date || "",
+    hasCurrentFlowData(state) ? "current" : (previousFlowState?.session?.trading_date || "pending"),
     state.latest_summary?.snapshot_utc || "",
     state.skew_summary?.snapshot_utc || "",
     state.skew_tenors?.length || 0,
@@ -427,10 +439,9 @@ bindColorControls("callColor", "callHex", "cyan");
 bindColorControls("putColor", "putHex", "orange");
 bindColorControls("bullColor", "bullHex", "bull");
 bindColorControls("bearColor", "bearHex", "bear");
-["flowInterval", "flowMoneyness", "flowExpiry", "trackerInterval", "trackerMoneyness", "trackerExpiry", "trackerMode"].forEach(id => {
+["flowInterval", "flowMoneyness", "flowExpiry"].forEach(id => {
   document.getElementById(id)?.addEventListener("change", () => {
     resetChartLocks();
-    trackerState.sessionKey = "";
     if (latestState) drawAll(latestState);
   });
 });
@@ -440,16 +451,10 @@ document.getElementById("flowResetZoom")?.addEventListener("click", () => {
   flowState.viewX = [0, flowState.bucketCount || 1];
   if (latestState) drawAll(latestState);
 });
-document.getElementById("trackerResetZoom")?.addEventListener("click", () => {
-  trackerState.sessionKey = "";
-  trackerState.autoFollow = true;
-  trackerState.viewX = [0, trackerState.bucketCount || 1];
-  if (latestState) drawAll(latestState);
-});
 window.addEventListener("resize", () => {
-  exposureSurfacePanel.state.renderer?.resize();
-  greekSurfacePanel.state.renderer?.resize();
   if (latestState) drawAll(latestState);
+  drawNetDrift();
+  drawXynthFlow();
 });
 update();
 setInterval(update, 10000);

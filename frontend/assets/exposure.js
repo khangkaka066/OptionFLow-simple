@@ -1,6 +1,7 @@
 import { COLORS, EXPOSURE_CONFIG } from "./config.js";
 import { moneyM, signedMoneyCompact } from "./utils.js";
 import { reactWithBarFade } from "./plotly-utils.js";
+import { attachStrikeHover } from "./strike-hover.js";
 
 function exposureLine(y, color, dash = "dash") {
   return {
@@ -150,7 +151,7 @@ export function drawExposure(id, rows, key, summary) {
     height: 500,
     uirevision: "keep-user-zoom",
     dragmode: "pan",
-    hovermode: "closest",
+    hovermode: false,
     showlegend: false,
     bargap: 0,
     xaxis: {visible: false, zeroline: false, range: [-maxAbs * 1.18, maxAbs * 1.18], fixedrange: false},
@@ -166,5 +167,8 @@ export function drawExposure(id, rows, key, summary) {
     shapes,
     annotations
   };
-  reactWithBarFade(id, data, layout, {displayModeBar: false, scrollZoom: true, responsive: true}, "exposure");
+  reactWithBarFade(id, data, layout, {displayModeBar: false, scrollZoom: true, responsive: true}, "exposure")
+    .then(() => attachStrikeHover(id, cleanRows, {
+      kind: "exposure", key, callKey, putKey, valueToPlot: symlogTransform
+    }));
 }

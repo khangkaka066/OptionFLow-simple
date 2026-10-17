@@ -3,7 +3,7 @@ import { baseLayout } from "./utils.js";
 
 export function drawIvRank(history, summary) {
   const rows = (history || [])
-    .filter(r => Number.isFinite(Number(r.avg_iv_pct)) && Number.isFinite(Number(r.spot)))
+    .filter(r => r.avg_iv_pct != null && r.spot != null && Number.isFinite(Number(r.avg_iv_pct)) && Number.isFinite(Number(r.spot)))
     .sort((a, b) => new Date(a.snapshot_utc || a.snapshot_vn) - new Date(b.snapshot_utc || b.snapshot_vn));
   drawIvRankChart(rows);
 }
@@ -29,6 +29,14 @@ function drawIvRankChart(rows) {
   const spotSpan = spotMax - spotMin || 1;
   const spotNorm = spotRaw.map(v => ((v - spotMin) / spotSpan) * 100);
   const tickText = x.map(v => new Date(v).toLocaleDateString("en-US", {month: "short", day: "2-digit"}));
+  // Labeling every day overlaps into unreadable mush once history spans a
+  // few weeks; thin to at most ~8 evenly-spaced ticks (data density itself
+  // is untouched - hover still resolves every point).
+  const maxTicks = 8;
+  const tickStep = Math.max(1, Math.ceil(x.length / maxTicks));
+  const tickIdx = x.map((_, i) => i).filter(i => i % tickStep === 0 || i === x.length - 1);
+  const tickVals = tickIdx.map(i => x[i]);
+  const tickLabels = tickIdx.map(i => tickText[i]);
   const current = rows[rows.length - 1];
   const formatHeader = row => hasRank
     ? `rank ${Number(row.iv_rank_pct ?? 0).toFixed(1)}% · IV ${Number(row.avg_iv_pct || 0).toFixed(1)}% · $${Number(row.spot || 0).toFixed(2)}`
@@ -64,7 +72,7 @@ function drawIvRankChart(rows) {
   // plot edge.
   layout.xaxis = {
     type: "category", showgrid: false, zeroline: false, color: COLORS.muted,
-    tickmode: "array", tickvals: x, ticktext: tickText, tickangle: 0, fixedrange: true,
+    tickmode: "array", tickvals: tickVals, ticktext: tickLabels, tickangle: 0, fixedrange: true,
     range: [-0.5, rows.length - 0.35]
   };
   layout.yaxis = {

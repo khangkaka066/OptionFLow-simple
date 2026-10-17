@@ -1,3 +1,6 @@
+LƯU Ý: Flow Tracker là panel cũ. Giao diện hiện dùng Net Drift từ mẫu dữ liệu công khai
+InsiderFinance. Công thức và giới hạn mẫu được ghi trong NET_DRIFT_README.md.
+
 CÁCH ĐỌC KẾT HỢP VOLATILITY FLOW, FLOW TRACKER VÀ HEAT TRACKER
 ==============================================================
 
@@ -135,4 +138,3 @@ QUY TẮC GỌN
 
 - Spot ở giữa range, xa wall
   Giảm size hoặc bỏ qua, vì location kém.
-

@@ -76,8 +76,13 @@ class DataStore:
         return candidate, unquote(encoded_ts)
 
     def latest_history_snapshot(self, ticker: str) -> tuple[Path, dict] | None:
-        best: tuple[pd.Timestamp, Path, dict] | None = None
-        for path in self.history_summary_paths(ticker):
+        # Each file lives under a date-named folder (`{date}/history/...`), so
+        # the file list is already sortable by date without opening anything.
+        # The first folder (newest date) that actually has a row for this
+        # ticker is the latest snapshot - no need to read all N days' worth
+        # of parquet just to find the single most recent one.
+        paths = sorted(self.history_summary_paths(ticker), key=lambda p: p.parent.parent.name, reverse=True)
+        for path in paths:
             try:
                 rows = pd.read_parquet(path)
             except Exception:
@@ -92,11 +97,42 @@ class DataStore:
             snapshot = pd.to_datetime(row.get("snapshot_utc"), errors="coerce", utc=True)
             if pd.isna(snapshot):
                 continue
-            if best is None or snapshot > best[0]:
-                best = (snapshot, path, row)
-        if best is None:
-            return None
-        return best[1], self.summary_from_history_row(best[2])
+            return path, self.summary_from_history_row(row)
+        return None
+
+    def latest_history_snapshot_before(self, ticker: str, before_ny_date: str) -> tuple[Path, dict] | None:
+        """Like `latest_history_snapshot`, but the newest row whose NY trading
+        date is strictly before `before_ny_date`.
+
+        Callers wanting "yesterday's close" (Levels Export / Key Level
+        Summary's EOD reference) must not resolve to today's still-forming
+        session, which `latest_history_snapshot` alone would do the moment
+        today's collector has written even one row. Iterates newest-folder-
+        first and stops at the first day whose rows actually satisfy the
+        date filter (in practice 1-2 files: today's, which gets filtered to
+        empty, then yesterday's), instead of scanning every historical day.
+        """
+        paths = sorted(self.history_summary_paths(ticker), key=lambda p: p.parent.parent.name, reverse=True)
+        for path in paths:
+            try:
+                rows = pd.read_parquet(path)
+            except Exception:
+                continue
+            if rows.empty or "ticker" not in rows or "snapshot_utc" not in rows:
+                continue
+            rows = rows[rows["ticker"].astype(str).str.upper() == ticker.upper()].copy()
+            if rows.empty:
+                continue
+            rows["_snapshot_ts"] = pd.to_datetime(rows["snapshot_utc"], errors="coerce", utc=True)
+            rows = rows[rows["_snapshot_ts"].notna()]
+            if rows.empty:
+                continue
+            rows = rows[rows["_snapshot_ts"].dt.tz_convert(self.ny_tz).dt.date.astype(str) < before_ny_date]
+            if rows.empty:
+                continue
+            row = rows.sort_values("snapshot_utc").iloc[-1].to_dict()
+            return path, self.summary_from_history_row(row)
+        return None
 
     def snapshot_id_for_path(self, path: Path) -> str:
         return path.relative_to(self.root).as_posix()

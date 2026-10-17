@@ -18,10 +18,10 @@ export const LEGACY_DEFAULT_COLORS = {
 };
 
 export const EXPOSURE_CONFIG = {
-  net_gex: {label: "GEX Exposure", callKey: "call_gex", putKey: "put_gex", wallAbsKey: "gamma_wall_abs", flipKey: "gamma_flip", wallLabel: "GAMMA WALL", flipLabel: "GAMMA FLIP"},
+  net_gex: {label: "GEX Exposure", callKey: "call_gex", putKey: "put_gex", wallAbsKey: "gamma_wall_abs", flipKey: "gamma_local_flip", wallLabel: "GAMMA WALL", flipLabel: "GAMMA FLIP"},
   net_dex: {label: "DEX Exposure", callKey: "call_dex", putKey: "put_dex", wallAbsKey: "dex_wall_abs", flipKey: "delta_flip", wallLabel: "DELTA WALL", flipLabel: "DELTA FLIP"},
-  net_vex: {label: "VEX Exposure", callKey: "call_vex", putKey: "put_vex", wallAbsKey: "vanna_wall_abs", flipKey: "vanna_flip", wallLabel: "VANNA WALL", flipLabel: "VANNA FLIP"},
-  net_chex: {label: "CHEX Exposure", callKey: "call_chex", putKey: "put_chex", wallAbsKey: "charm_wall_abs", flipKey: "charm_flip", wallLabel: "CHARM WALL", flipLabel: "CHARM FLIP"},
+  net_vex: {label: "VEX Exposure", callKey: "call_vex", putKey: "put_vex", wallAbsKey: "vanna_wall_abs", flipKey: "vanna_local_flip", wallLabel: "VANNA WALL", flipLabel: "VANNA FLIP"},
+  net_chex: {label: "CHEX Exposure", callKey: "call_chex", putKey: "put_chex", wallAbsKey: "charm_wall_abs", flipKey: "charm_local_flip", wallLabel: "CHARM WALL", flipLabel: "CHARM FLIP"},
 };
 
 const API_BASE_STORAGE_KEY = "qqqDashboardApiBaseUrl";

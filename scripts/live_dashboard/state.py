@@ -19,6 +19,7 @@ class LiveState:
         self.levels_by_strike: list[dict] = []
         self.levels_locked: bool = False
         self.key_level_summary: dict | None = None
+        self.dealer_verdict: dict | None = None
         self.levels_summary_secondary: dict | None = None
         self.levels_locked_secondary: bool = False
         self.expected_move_anchor: dict | None = None

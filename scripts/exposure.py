@@ -58,6 +58,7 @@ class GexSummary:
     call_resistance: float | None
     put_support: float | None
     gamma_flip: float | None
+    gamma_local_flip: float | None
     net_dex: float
     total_call_dex: float
     total_put_dex: float
@@ -70,12 +71,14 @@ class GexSummary:
     vanna_wall_abs: float | None
     vanna_wall_positive: float | None
     vanna_flip: float | None
+    vanna_local_flip: float | None
     net_chex: float
     total_call_chex: float
     total_put_chex: float
     charm_wall_abs: float | None
     charm_wall_positive: float | None
     charm_flip: float | None
+    charm_local_flip: float | None
     top_abs_gex_levels: list[dict]
     top_abs_dex_levels: list[dict]
     avg_iv: float | None
@@ -333,32 +336,51 @@ def aggregate_greeks_by_expiry_strike(chain: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index()
 
 
-def compute_flip(by_strike: pd.DataFrame, column: str, spot: float) -> float | None:
-    """Strike where the cumulative (strike-ascending) sum of `column` crosses zero.
+def compute_all_flips(by_strike: pd.DataFrame, column: str, *, cumulative: bool = True) -> list[float]:
+    """Every strike where `column` crosses zero, in strike-ascending order.
+
+    `cumulative=True` (default) uses the cumulative (strike-ascending) sum of
+    `column` - "where the chain-wide dealer position flips sign." That's a
+    sound definition for a naturally one-signed Greek like Delta, but Gamma/
+    Vanna/Charm are symmetric around the money for both calls and puts, so
+    their cumulative sum has no structural reason to ever cross zero (it
+    stays null the vast majority of the time in practice). `cumulative=False`
+    instead looks at the raw per-strike value directly - a literal sign
+    change between adjacent strikes, the same "local" concept
+    `key_level_summary._local_delta_flips` already uses for Delta, here
+    generalized to any column.
 
     Far-OTM strikes can carry floating-point-noise-level exposure (e.g. 1e-38)
-    whose sign flips spuriously; among all zero-crossings, pick the one closest
-    to spot since that's the economically meaningful flip point.
+    whose sign flips spuriously, but those show up as extra crossings far from
+    the liquid part of the chain rather than corrupting the ones that matter -
+    callers that only want the economically meaningful flip nearest spot
+    should use `compute_flip`.
     """
     data = by_strike.sort_values("strike").reset_index(drop=True)
     if data.empty:
-        return None
-    cum = data[column].cumsum()
-    sign = np.sign(cum)
-    best_flip: float | None = None
-    best_distance = float("inf")
+        return []
+    series = data[column].cumsum() if cumulative else data[column]
+    sign = np.sign(series)
+    flips: list[float] = []
     for i in range(1, len(data)):
         prev_sign, cur_sign = sign.iloc[i - 1], sign.iloc[i]
         if prev_sign == 0 or cur_sign == 0 or prev_sign == cur_sign:
             continue
         x0, x1 = float(data["strike"].iloc[i - 1]), float(data["strike"].iloc[i])
-        y0, y1 = float(cum.iloc[i - 1]), float(cum.iloc[i])
+        y0, y1 = float(series.iloc[i - 1]), float(series.iloc[i])
         flip = x1 if y1 == y0 else x0 + (-y0 / (y1 - y0)) * (x1 - x0)
-        distance = abs(flip - spot)
-        if distance < best_distance:
-            best_distance = distance
-            best_flip = flip
-    return best_flip
+        flips.append(flip)
+    return flips
+
+
+def compute_flip(by_strike: pd.DataFrame, column: str, spot: float, *, cumulative: bool = True) -> float | None:
+    """Strike where `column` crosses zero, closest to `spot` - that's the
+    economically meaningful flip point among all crossings (see
+    `compute_all_flips`, which also documents the `cumulative` flag)."""
+    flips = compute_all_flips(by_strike, column, cumulative=cumulative)
+    if not flips:
+        return None
+    return min(flips, key=lambda flip: abs(flip - spot))
 
 
 def nearest_atm_iv(by_strike: pd.DataFrame, spot: float) -> float | None:
@@ -436,7 +458,7 @@ def build_expected_move_anchor_from_point(
     }
 
 
-EXPECTED_MOVE_TARGET_OFFSET_MIN = 5.0
+EXPECTED_MOVE_TARGET_OFFSET_MIN = -15.0
 EXPECTED_MOVE_TARGET_WINDOW_MIN = 2.0
 
 
@@ -459,17 +481,16 @@ def _anchor_from_point(point: dict, point_ts: pd.Timestamp, ticker: str) -> dict
 
 
 def find_expected_move_anchor(points: list[dict], market_open_utc: str, ticker: str) -> dict | None:
-    """Freeze Expected Move at the ~9:35-9:36 ET snapshot (5-7 min after
-    open), the window by which the chain has settled from the open auction.
+    """Freeze Expected Move at the ~9:15-9:16 ET snapshot.
 
-    Falls back to the first snapshot at/after market open when nothing
+    Falls back to the first snapshot at/after 9:15 ET when nothing
     landed in that window (e.g. the collector's poll cadence skipped it),
     so the panel still gets an anchor rather than staying empty.
     """
     if not points or not market_open_utc:
         return None
-    anchor_ts = pd.Timestamp(market_open_utc)
-    window_start = anchor_ts + pd.Timedelta(minutes=EXPECTED_MOVE_TARGET_OFFSET_MIN)
+    market_open_ts = pd.Timestamp(market_open_utc)
+    window_start = market_open_ts + pd.Timedelta(minutes=EXPECTED_MOVE_TARGET_OFFSET_MIN)
     window_end = window_start + pd.Timedelta(minutes=EXPECTED_MOVE_TARGET_WINDOW_MIN)
     ordered = sorted(points, key=lambda p: p.get("time") or "")
 
@@ -483,7 +504,7 @@ def find_expected_move_anchor(points: list[dict], market_open_utc: str, ticker: 
 
     for point in ordered:
         point_ts = pd.to_datetime(point.get("time"), errors="coerce", utc=True)
-        if pd.isna(point_ts) or point_ts < anchor_ts:
+        if pd.isna(point_ts) or point_ts < window_start:
             continue
         anchor = _anchor_from_point(point, point_ts, ticker)
         if anchor is not None:
@@ -574,6 +595,7 @@ def build_summary(
         call_resistance=first_or_none(call_candidates["strike"]),
         put_support=first_or_none(put_candidates["strike"]),
         gamma_flip=compute_flip(by_strike, "net_gex", spot),
+        gamma_local_flip=compute_flip(by_strike, "net_gex", spot, cumulative=False),
         net_dex=float(by_strike["net_dex"].sum()),
         total_call_dex=float(calls["dex"].sum()),
         total_put_dex=float(puts["dex"].sum()),
@@ -586,12 +608,14 @@ def build_summary(
         vanna_wall_abs=vanna_wall_abs,
         vanna_wall_positive=vanna_wall_positive,
         vanna_flip=compute_flip(by_strike, "net_vex", spot),
+        vanna_local_flip=compute_flip(by_strike, "net_vex", spot, cumulative=False),
         net_chex=float(by_strike["net_chex"].sum()),
         total_call_chex=float(calls["chex"].sum()),
         total_put_chex=float(puts["chex"].sum()),
         charm_wall_abs=charm_wall_abs,
         charm_wall_positive=charm_wall_positive,
         charm_flip=compute_flip(by_strike, "net_chex", spot),
+        charm_local_flip=compute_flip(by_strike, "net_chex", spot, cumulative=False),
         top_abs_gex_levels=top_levels.to_dict(orient="records"),
         top_abs_dex_levels=top_dex_levels.to_dict(orient="records"),
         avg_iv=avg_iv,

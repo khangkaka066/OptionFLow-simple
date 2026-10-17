@@ -322,6 +322,7 @@ class GreekSurfaceService:
             "type": "greek_surface",
             "ticker": ticker,
             "date": trading_date or summary.get("effective_snapshot_date") or summary.get("requested_snapshot_date"),
+            "source_date": summary.get("effective_snapshot_date") or summary.get("requested_snapshot_date"),
             "snapshot_utc": clean_value(summary.get("snapshot_utc")),
             "greek": greek,
             "mode": mode,

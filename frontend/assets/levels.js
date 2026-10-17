@@ -10,20 +10,27 @@ function buildLevelsLine(summary) {
   const top = Array.isArray(summary?.top_abs_gex_levels) ? summary.top_abs_gex_levels : [];
   const gex = top.slice(0, 10).map(item => adj(item?.strike));
   while (gex.length < 10) gex.push(null);
+  const expiries = Array.isArray(summary?.included_expiries) && summary.included_expiries.length
+    ? summary.included_expiries
+    : [summary?.expiry];
+  const sessionDate = summary?.requested_snapshot_date || summary?.effective_snapshot_date;
+  const isZeroDteOnly = expiries.length === 1 && expiries[0] === sessionDate;
+  const zeroDteLevel = value => fmtLevel(isZeroDteOnly ? adj(value) : null, 0, tickSize);
   const parts = [
     `${label}: Call Resistance`, fmtLevel(adj(summary?.call_resistance), 0, tickSize),
     "Put Support", fmtLevel(adj(summary?.put_support), 0, tickSize),
     "HVL", fmtLevel(adj(summary?.spot), 2),
     "1D Min", fmtLevel(adj(summary?.one_day_min), 2),
     "1D Max", fmtLevel(adj(summary?.one_day_max), 2),
-    "Call Resistance 0DTE", fmtLevel(adj(summary?.call_resistance), 0, tickSize),
-    "Put Support 0DTE", fmtLevel(adj(summary?.put_support), 0, tickSize),
-    "HVL 0DTE", fmtLevel(adj(summary?.gamma_flip), 0, tickSize),
-    "Gamma Wall 0DTE", fmtLevel(adj(summary?.gamma_wall_abs), 0, tickSize),
+    "Call Resistance 0DTE", zeroDteLevel(summary?.call_resistance),
+    "Put Support 0DTE", zeroDteLevel(summary?.put_support),
+    "HVL 0DTE", zeroDteLevel(summary?.gamma_flip),
+    "Gamma Wall 0DTE", zeroDteLevel(summary?.gamma_wall_abs),
   ];
   gex.forEach((strike, idx) => {
     parts.push(`GEX ${idx + 1}`, fmtLevel(strike, 0, tickSize));
   });
+  parts.push("Gamma Flip", fmtLevel(adj(summary?.gamma_flip), 0, tickSize));
   return parts.join(", ");
 }
 

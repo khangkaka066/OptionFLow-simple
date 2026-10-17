@@ -1,6 +1,7 @@
 import { COLORS } from "./config.js";
 import { baseLayout, rightLegend } from "./utils.js";
 import { reactWithBarFade } from "./plotly-utils.js";
+import { attachStrikeHover } from "./strike-hover.js";
 
 export function drawOi(rows, summary) {
   const x = rows.map(r => r.strike);
@@ -12,13 +13,15 @@ export function drawOi(rows, summary) {
   layout.margin.t = 55;
   layout.legend = rightLegend();
   layout.barmode = "group";
+  layout.hovermode = false;
   layout.xaxis = {title: "Strike", showgrid: false, zeroline: false, color: COLORS.muted};
   layout.yaxis = {title: "Open Interest", showgrid: false, zeroline: false, color: COLORS.muted};
   if (summary?.spot) {
     layout.shapes = [{type: "line", x0: summary.spot, x1: summary.spot, y0: 0, y1: 1, xref: "x", yref: "paper", line: {color: COLORS.spot, dash: "dot"}}];
     layout.annotations = [{x: summary.spot, y: 0.98, xref: "x", yref: "paper", text: "SPOT " + Number(summary.spot).toFixed(2), showarrow: false, xanchor: "left", yanchor: "top", xshift: 6, font: {color: COLORS.spot, size: 11}, bgcolor: "rgba(5,7,11,0.70)"}];
   }
-  reactWithBarFade("oi", data, layout, {displayModeBar: false, scrollZoom: true, responsive: true}, "oi");
+  reactWithBarFade("oi", data, layout, {displayModeBar: false, scrollZoom: true, responsive: true}, "oi")
+    .then(() => attachStrikeHover("oi", rows, {kind: "oi"}));
 }
 
 export function drawOiIv(rows, summary) {
@@ -32,6 +35,7 @@ export function drawOiIv(rows, summary) {
   layout.margin.t = 55;
   layout.legend = rightLegend();
   layout.barmode = "group";
+  layout.hovermode = false;
   layout.xaxis = {title: "Strike", showgrid: false, zeroline: false, color: COLORS.muted};
   layout.yaxis = {title: "Open Interest", showgrid: false, zeroline: false, color: COLORS.muted};
   layout.yaxis2 = {title: "IV %", overlaying: "y", side: "right", color: COLORS.muted, showgrid: false, zeroline: false};
@@ -39,5 +43,6 @@ export function drawOiIv(rows, summary) {
     layout.shapes = [{type: "line", x0: summary.spot, x1: summary.spot, y0: 0, y1: 1, xref: "x", yref: "paper", line: {color: COLORS.spot, dash: "dot"}}];
     layout.annotations = [{x: summary.spot, y: 0.98, xref: "x", yref: "paper", text: "SPOT " + Number(summary.spot).toFixed(2), showarrow: false, xanchor: "left", yanchor: "top", xshift: 6, font: {color: COLORS.spot, size: 11}, bgcolor: "rgba(5,7,11,0.70)"}];
   }
-  reactWithBarFade("oiiv", data, layout, {displayModeBar: false, scrollZoom: true, responsive: true}, "oi");
+  reactWithBarFade("oiiv", data, layout, {displayModeBar: false, scrollZoom: true, responsive: true}, "oi")
+    .then(() => attachStrikeHover("oiiv", rows, {kind: "oiiv"}));
 }

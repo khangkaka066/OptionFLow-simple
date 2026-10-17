@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Fetch a reconciled option chain and compute GEX/DEX levels.
 
-Pipeline (default live path): InsiderFinance (structural/OI/IV/bid/ask,
-  and spot) + Optionwatch (bid/ask size) -> primary reconciliation.
+Pipeline (default live path): InsiderFinance (structural/OI/IV/bid/ask)
+  + Optionwatch (bid/ask size) -> primary reconciliation.
   Volume is taken from Pineify when available, with CBOE+Yahoo's
   volume kept only as a per-row fallback (see `volume_source` in the
-  reconciliation report). Spot for greeks is InsiderFinance's own
-  `spot` field, falling back to Yahoo/CBOE only if InsiderFinance
-  omits it. CBOE+Yahoo are being phased out of the default path; see
+  reconciliation report). Spot for greeks is CBOE's underlying price,
+  falling back to Yahoo and then InsiderFinance only if CBOE omits it. See
   `report_dict["volume_source"]`/`report_dict["spot_source"]` to
   monitor fallback usage before removing them entirely.
 
@@ -35,6 +34,7 @@ import pandas as pd
 import storage
 from bsm import years_from_override, years_to_expiry
 from cleanup_dead_data import run_cleanup
+from retain_recent_data import run_retention
 from exposure import aggregate_by_strike, build_summary, compute_greeks, nearest_atm_iv
 from reconcile import reconcile_chain
 from sources import cboe, insiderfinance, yahoo
@@ -110,6 +110,25 @@ def parse_args() -> argparse.Namespace:
 
 def resolve_snapshot_day(value: str | None) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date() if value else datetime.now().date()
+
+
+def select_spot(
+    cboe_spot: float | None,
+    yahoo_spot: float | None,
+    insiderfinance_live_spot: float | None,
+    insiderfinance_snapshot_spot: float | None,
+) -> tuple[float, str]:
+    """Choose the live underlying price, preferring CBOE."""
+    candidates = (
+        (cboe_spot, "cboe"),
+        (yahoo_spot, "yahoo"),
+        (insiderfinance_live_spot, "insiderfinance_live"),
+        (insiderfinance_snapshot_spot, "insiderfinance"),
+    )
+    for value, source in candidates:
+        if value is not None and np.isfinite(value) and value > 0:
+            return float(value), source
+    raise ValueError("No valid spot price available from CBOE, Yahoo, or InsiderFinance")
 
 
 def load_saved_raw(input_dir: Path, ticker: str, expiry: str) -> tuple[dict, dict]:
@@ -206,6 +225,9 @@ def main() -> None:
     yahoo_available = True
     if_data = None
     if_live_spot = None
+    cboe_data = None
+    yahoo_data = None
+    volume_data = None
     if_ow_chain = None
     if_ow_report = None
     ow_raw = None
@@ -288,8 +310,12 @@ def main() -> None:
         expiry = args.expiry or if_future_expiries[0]
         if_chain = if_data.chain[if_data.chain["expiry"] == expiry].reset_index(drop=True)
 
-        ow_raw = optionwatch.fetch_snapshot(ticker_symbol, expiry)
-        ow_chain = optionwatch.parse_snapshot(ow_raw, ticker_symbol)
+        try:
+            ow_raw = optionwatch.fetch_snapshot(ticker_symbol, expiry)
+            ow_chain = optionwatch.parse_snapshot(ow_raw, ticker_symbol)
+        except Exception as exc:
+            ow_chain = pd.DataFrame(columns=optionwatch.CHAIN_COLUMNS)
+            print(f"WARNING: Optionwatch unavailable ({exc}); continuing without bid_size/ask_size supplement.")
         if_ow_chain, if_ow_report = reconcile_if_ow_chain(if_chain, ow_chain)
 
         # Best-effort supplement: Pineify volume/OI (public options-chain page only).
@@ -383,19 +409,22 @@ def main() -> None:
         report_dict["yahoo_available"] = yahoo_available
         report_dict["chain_source"] = "cboe+yahoo"
 
-    # Spot for greeks: InsiderFinance's ticker-details API is authoritative when
-    # available (near-real-time, updates every request); the gamma-exposure page's
-    # own spot field is a cached/periodic snapshot and is only a fallback within
-    # InsiderFinance, ahead of Yahoo spot for --all-expiries/--input-dir modes.
-    if if_live_spot:
-        spot_for_greeks = if_live_spot
-        report_dict["spot_source"] = "insiderfinance_live"
-    elif if_data is not None and if_data.spot:
-        spot_for_greeks = if_data.spot
-        report_dict["spot_source"] = "insiderfinance"
-    else:
-        spot_for_greeks = yahoo_data.spot
-        report_dict["spot_source"] = "yahoo"
+    # CBOE's underlying price is the primary live spot. Yahoo and
+    # InsiderFinance remain fallbacks so a transient CBOE omission does not
+    # stop the collector.
+    cboe_spot = (
+        volume_data.underlying_price
+        if args.source == "insiderfinance" and volume_data is not None
+        else cboe_data.underlying_price if cboe_data is not None else None
+    )
+    yahoo_spot = yahoo_data.spot if yahoo_data is not None else None
+    spot_for_greeks, spot_source = select_spot(
+        cboe_spot,
+        yahoo_spot,
+        if_live_spot,
+        if_data.spot if if_data is not None else None,
+    )
+    report_dict["spot_source"] = spot_source
 
     chain = compute_greeks(reconciled, spot_for_greeks, years_by_expiry, args.rate)
     report_dict["iv_unavailable_count"] = int(chain["impliedVolatility"].isna().sum())
@@ -429,7 +458,7 @@ def main() -> None:
     summary_dict = asdict(summary)
     if args.source == "insiderfinance":
         summary_dict.update({
-            "chain_source": "insiderfinance", "spot_source": "insiderfinance",
+            "chain_source": "insiderfinance", "spot_source": report_dict["spot_source"],
             "source_timestamp": source_timestamp,
             "source_is_stale": if_data.raw.get("isStale"),
             "fetch_source": report_dict["fetch_source"],
@@ -449,7 +478,7 @@ def main() -> None:
             raw_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         raw_frames = [storage.normalize_raw_chain(
             reconciled, capture_ts=summary_dict["snapshot_utc"],
-            ticker=ticker_symbol, source="insiderfinance_reconciled", spot=if_data.spot,
+            ticker=ticker_symbol, source="insiderfinance_reconciled", spot=spot_for_greeks,
             source_ts=source_timestamp,
         )]
     elif if_data is not None:
@@ -531,6 +560,8 @@ def main() -> None:
     if deleted_raw:
         print(f"Deleted raw JSON after history write: {', '.join(str(p) for p in deleted_raw)}")
     run_cleanup(apply=True, verbose=False)
+    if args.output_root.resolve() == DEFAULT_OUTPUT_ROOT.resolve():
+        run_retention(apply=True, verbose=False)
 
 
 if __name__ == "__main__":

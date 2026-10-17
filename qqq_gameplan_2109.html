@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QUANTDECAY — QQQ 0DTE Gameplan · 21/09/2026</title>
+<style>
+  :root{
+    --bg:#0a0a0b; --panel:#111113; --panel2:#141416;
+    --line:#232327; --line2:#2e2e34;
+    --txt:#e8e8ea; --dim:#8b8b93; --dim2:#65656d; --body:#a8a8b0;
+    --amber:#e0a458; --green:#4ea87a; --red:#d9584f; --violet:#8b7ee8; --cyan:#5aa9c4;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px;line-height:1.55;padding:22px}
+  .mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
+
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding:0 4px;flex-wrap:wrap;gap:10px}
+  .brand{display:flex;align-items:center;gap:10px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;letter-spacing:.22em}
+  .ring{width:13px;height:13px;border:1.5px solid var(--amber);border-radius:50%}
+  .topmeta{font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.16em;color:var(--dim2);
+    display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .topmeta .pill{padding:4px 11px;border-radius:5px;font-weight:600;letter-spacing:.18em}
+  .pill.main{background:rgba(224,164,88,.16);color:var(--amber);border:1px solid rgba(224,164,88,.42);text-shadow:0 0 14px rgba(224,164,88,.45)}
+  .pill.tick{background:rgba(90,169,196,.14);color:var(--cyan);border:1px solid rgba(90,169,196,.34)}
+  .pill.date{background:rgba(232,232,234,.07);color:var(--txt);border:1px solid var(--line2)}
+  .pill.spot{background:rgba(78,168,122,.14);color:var(--green);border:1px solid rgba(78,168,122,.36)}
+  .pill.live{background:rgba(78,168,122,.18);color:var(--green);border:1px solid rgba(78,168,122,.5);text-shadow:0 0 12px rgba(78,168,122,.5)}
+
+  .copyright{font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.15em;color:var(--dim2);
+    text-align:center;padding:16px 4px 4px;border-top:1px solid var(--line);margin-top:4px;line-height:1.9}
+  .copyright b{color:var(--amber);font-weight:600;letter-spacing:.2em}
+  .copyright .no{color:rgba(217,88,79,.85)}
+
+  .scn{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-bottom:20px;overflow:hidden}
+  .grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.82fr) minmax(0,.72fr)}
+  .col{padding:24px 26px}
+  .col+.col{border-left:1px solid var(--line)}
+
+  .head{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}
+  .tag{font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:3px 9px;border:1px solid var(--line2);border-radius:5px;color:var(--dim);flex:none}
+  .tag.time{border-color:rgba(217,88,79,.45);color:var(--red)}
+  .tag.time.g{border-color:rgba(78,168,122,.45);color:var(--green)}
+  .tag.time.v{border-color:rgba(139,126,232,.45);color:var(--violet)}
+  h2{font-size:19px;line-height:1.3;margin:0;font-weight:650;flex:1;letter-spacing:-.01em}
+  .odds{text-align:right;flex:none;padding-left:10px}
+  .odds b{display:block;font-size:26px;font-weight:700;letter-spacing:-.02em}
+  .odds span{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.14em;color:var(--dim2)}
+  .odds i{display:block;font-style:normal;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--dim2);margin-top:2px}
+  .o-hi b{color:var(--amber)} .o-md b{color:var(--dim)} .o-lo b{color:var(--dim2)}
+
+  .thesis{border-left:2px solid var(--amber);background:rgba(224,164,88,.055);padding:13px 16px;border-radius:0 6px 6px 0;margin-bottom:15px}
+  .thesis.g{border-color:var(--green);background:rgba(78,168,122,.055)}
+  .thesis.v{border-color:var(--violet);background:rgba(139,126,232,.055)}
+  .thesis.r{border-color:var(--red);background:rgba(217,88,79,.055)}
+  .thesis b{font-weight:650}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:19px}
+
+  .lbl{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.15em;color:var(--dim2);margin-bottom:9px}
+  .states{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:20px}
+  .st{border:1px solid var(--line2);border-radius:7px;padding:10px 12px;cursor:pointer;background:var(--panel2);transition:border-color .12s,background .12s}
+  .st:hover{border-color:#3d3d45}
+  .st h4{margin:0 0 4px;font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.13em}
+  .st p{margin:0;font-size:11.5px;color:var(--dim2);line-height:1.4}
+  .st.on p{color:var(--txt)}
+  .st:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .st.armed h4{color:rgba(78,168,122,.55)}
+  .st.rearm h4{color:rgba(224,164,88,.55)}
+  .st.dead  h4{color:rgba(217,88,79,.55)}
+  .st.armed.on{border-color:var(--green);background:rgba(78,168,122,.11);box-shadow:inset 0 0 0 1px rgba(78,168,122,.22)}
+  .st.armed.on h4{color:var(--green)}
+  .st.rearm.on{border-color:var(--amber);background:rgba(224,164,88,.11);box-shadow:inset 0 0 0 1px rgba(224,164,88,.22)}
+  .st.rearm.on h4{color:var(--amber)}
+  .st.dead.on{border-color:var(--red);background:rgba(217,88,79,.11);box-shadow:inset 0 0 0 1px rgba(217,88,79,.22)}
+  .st.dead.on h4{color:var(--red)}
+
+  .hl{color:var(--txt);font-weight:600}
+  .hl-g{color:var(--green);font-weight:600}
+  .hl-r{color:var(--red);font-weight:600}
+  .hl-a{color:var(--amber);font-weight:600}
+  .hl-v{color:var(--violet);font-weight:600}
+  .hl-c{color:var(--cyan);font-weight:600}
+  .px-hl{background:rgba(224,164,88,.14);color:var(--amber);font-family:ui-monospace,Menlo,monospace;font-size:.94em;font-weight:600;padding:1px 5px;border-radius:4px;white-space:nowrap}
+  .px-hl.g{background:rgba(78,168,122,.14);color:var(--green)}
+  .px-hl.r{background:rgba(217,88,79,.14);color:var(--red)}
+  .px-hl.v{background:rgba(139,126,232,.14);color:var(--violet)}
+
+  .body p{font-size:13.5px;color:var(--body);margin:0 0 13px}
+  .body em{color:var(--txt);font-style:italic}
+  ul.dash{list-style:none;padding:0;margin:0}
+  ul.dash li{font-size:12.5px;color:var(--body);padding-left:15px;position:relative;margin-bottom:9px;line-height:1.5}
+  ul.dash li:before{content:"–";position:absolute;left:0;color:var(--dim2)}
+
+  .entry{border:1px solid var(--line2);border-radius:9px;padding:16px 18px;margin-bottom:13px;background:var(--panel2)}
+  .entry .k{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.15em;color:var(--dim2);margin-bottom:8px}
+  .entry .px{font-family:ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;letter-spacing:-.01em;margin-bottom:5px}
+  .px.g{color:var(--green)} .px.r{color:var(--red)} .px.v{color:var(--violet)} .px.a{color:var(--amber)}
+  .entry .tap{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--cyan);margin-bottom:9px}
+  .entry .why{font-size:12.5px;color:var(--body);line-height:1.5}
+  .rr{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--dim2);margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
+
+  .chk{display:flex;gap:11px;align-items:flex-start;padding:8px 0;cursor:pointer}
+  .chk input{position:absolute;opacity:0;width:0;height:0}
+  .box{width:16px;height:16px;border:1px solid var(--line2);border-radius:4px;flex:none;margin-top:1px;display:flex;align-items:center;justify-content:center;transition:.12s;background:var(--panel2)}
+  .box svg{opacity:0;width:10px;height:10px}
+  .chk input:checked + .box{background:var(--amber);border-color:var(--amber)}
+  .chk input:checked + .box svg{opacity:1}
+  .chk input:focus-visible + .box{outline:2px solid var(--cyan);outline-offset:2px}
+  .chk span{font-size:12.5px;color:var(--dim);line-height:1.45}
+  .chk input:checked ~ span{color:var(--txt)}
+  .tally{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--dim2);margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
+  .tally.ok{color:var(--green)}
+
+  .lv{margin-bottom:18px}
+  .lv .n{font-family:ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;letter-spacing:-.01em}
+  .lv .t{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.13em;color:var(--dim2);margin-left:9px}
+  .lv p{margin:5px 0 0;font-size:12.5px;color:var(--body);line-height:1.5}
+  .n.g{color:var(--green)} .n.r{color:var(--red)} .n.v{color:var(--violet)} .n.a{color:var(--amber)} .n.w{color:var(--txt)} .n.c{color:var(--cyan)}
+
+  .foot{border-top:1px solid var(--line);padding:15px 26px;display:flex;gap:34px;flex-wrap:wrap;background:rgba(0,0,0,.22)}
+  .foot div{font-size:12.5px;color:var(--body);flex:1;min-width:230px}
+  .foot .k{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.13em;margin-right:8px}
+  .k.g{color:var(--green)} .k.r{color:var(--red)}
+
+  .warn{border:1px solid rgba(217,88,79,.32);background:rgba(217,88,79,.055);border-radius:9px;padding:13px 17px;color:var(--red);font-size:12.5px;margin-bottom:20px;line-height:1.55}
+  .warn.g{border-color:rgba(78,168,122,.38);background:rgba(78,168,122,.07);color:var(--green)}
+  .note{color:var(--dim2);font-size:11.5px;font-style:italic;line-height:1.6;padding:0 4px 6px}
+
+  .ctx{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:20px 26px;margin-bottom:20px}
+  .ctxgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:20px}
+  .ctx h3{margin:0 0 16px;font-size:12px;font-family:ui-monospace,Menlo,monospace;letter-spacing:.15em;color:var(--dim2);font-weight:400}
+  .cell{border-left:2px solid var(--line2);padding-left:14px}
+  .cell .h{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.13em;color:var(--dim2);margin-bottom:6px}
+  .cell .v{font-family:ui-monospace,Menlo,monospace;font-size:15px;font-weight:600;margin-bottom:5px}
+  .cell p{margin:0;font-size:11.8px;color:var(--body);line-height:1.5}
+  .cell.c-g{border-left-color:rgba(78,168,122,.5)}
+  .cell.c-a{border-left-color:rgba(224,164,88,.5)}
+  .cell.c-v{border-left-color:rgba(139,126,232,.5)}
+  .cell.c-c{border-left-color:rgba(90,169,196,.5)}
+  .cell.c-r{border-left-color:rgba(217,88,79,.5)}
+  .cell.c-w{border-left-color:rgba(232,232,234,.35)}
+
+  .conf{display:flex;gap:5px;margin-bottom:6px}
+  .dot{width:9px;height:9px;border-radius:2px;background:var(--line2)}
+  .dot.on{background:var(--amber);box-shadow:0 0 8px rgba(224,164,88,.5)}
+
+  .branches{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
+  .br{border:1px solid rgba(78,168,122,.42);border-radius:10px;padding:18px 20px;background:rgba(78,168,122,.055)}
+  .br .bh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+  .br .bn{font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.15em;color:var(--dim2)}
+  .br .bp{font-family:ui-monospace,Menlo,monospace;font-size:26px;font-weight:700;letter-spacing:-.02em;color:var(--green)}
+  .br .bv{font-family:ui-monospace,Menlo,monospace;font-size:15px;font-weight:600;margin-bottom:4px}
+  .br .bd{font-size:12px;color:var(--body);line-height:1.5;margin-bottom:12px}
+  .bar{height:5px;border-radius:3px;background:var(--line2);overflow:hidden;margin-bottom:12px}
+  .bar i{display:block;height:100%;border-radius:3px;background:var(--green)}
+  table.sc{width:100%;border-collapse:collapse;font-size:11.5px}
+  table.sc td{padding:5px 0;border-bottom:1px solid var(--line);color:var(--body)}
+  table.sc td:last-child{text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600}
+  table.sc tr:last-child td{border-bottom:none;padding-top:8px;color:var(--txt);font-weight:600}
+  .pos{color:var(--green)} .neg{color:var(--red)} .neu{color:var(--dim)}
+
+  .agree{border:1px solid rgba(224,164,88,.42);background:rgba(224,164,88,.09);border-radius:9px;
+    padding:14px 18px;margin-bottom:18px;text-align:center}
+  .agree b{font-family:ui-monospace,Menlo,monospace;font-size:15px;letter-spacing:.1em;color:var(--amber)}
+  .agree p{margin:6px 0 0;font-size:12px;color:var(--body)}
+
+  @media (max-width:1080px){.grid{grid-template-columns:1fr}.col+.col{border-left:none;border-top:1px solid var(--line)}.branches{grid-template-columns:1fr}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  .pill.live{background:rgba(78,168,122,.18);color:var(--green);border:1px solid rgba(78,168,122,.5);text-shadow:0 0 12px rgba(78,168,122,.5)}
+  .pill.bt{background:rgba(217,88,79,.18);color:var(--red);border:1px solid rgba(217,88,79,.5);text-shadow:0 0 12px rgba(217,88,79,.45)}
+  .pill.opex{background:rgba(224,164,88,.18);color:var(--amber);border:1px solid rgba(224,164,88,.55);text-shadow:0 0 12px rgba(224,164,88,.5)}
+  .lv .cf{font-family:ui-monospace,Menlo,monospace;font-size:9px;letter-spacing:.1em;color:var(--dim2);margin-left:8px}
+</style>
+</head>
+<body>
+
+
+<div class="topbar">
+  <div class="brand"><span class="ring"></span>QUANTDECAY</div>
+  <div class="topmeta">
+    <span class="pill main">DAILY GAMEPLAN</span>
+    <span class="pill tick">QQQ 0DTE</span>
+    <span class="pill date">21/09/2026</span>
+    <span class="pill spot">SPOT 728.28</span>
+    <span class="pill live">PRE-OPEN · 08:53 ET</span>
+  </div>
+</div>
+
+<div class="ctx">
+  <h3>IV BRANCH SCORING — IV−2 SEP 17 vs IV−1 SEP 18 · BOTH BRANCHES AGREE</h3>
+  <div class="branches">
+    <div class="br">
+      <div class="bh"><span class="bn">BRANCH A — IV CLOSE EOD</span><span class="bp">RISE</span></div>
+      <div class="bv" style="color:var(--green)">7.6% → 15.3%</div>
+      <div class="bd">Volatility Flow header, 0DTE OTM. Sep 17 closed <span class="hl">7.6%</span>, Sep 18 closed <span class="hl">15.3%</span> — a <span class="hl-g">+7.7 point</span> rise. The same Sep 17 session read <span class="hl-a">9.6%</span> on the previous capture set with an identical end time; direction survives either value.</div>
+      <div class="bar"><i style="width:100%"></i></div>
+      <table class="sc">
+        <tr><td>Direction</td><td class="pos">RISE</td></tr>
+        <tr><td>Above strike → verdict</td><td class="neg">BUY LESS | SELL MORE</td></tr>
+      </table>
+    </div>
+    <div class="br">
+      <div class="bh"><span class="bn">BRANCH B — IV SESSION AVERAGE</span><span class="bp">RISE</span></div>
+      <div class="bv" style="color:var(--green)">14.9% → 15.2%</div>
+      <div class="bd">A <span class="hl-g">+0.3 point</span> rise, higher at only <span class="hl-a">4 of 6 hours</span> — inside reading error. <span class="hl-a">Branch B is effectively flat</span>: Sep 18 held 15–16% all day instead of decaying, so the close rose while the average barely moved.</div>
+      <div class="bar"><i style="width:100%"></i></div>
+      <table class="sc">
+        <tr><td>Direction</td><td class="pos">RISE</td></tr>
+        <tr><td>Above strike → verdict</td><td class="neg">BUY LESS | SELL MORE</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="agree">
+    <b>IV EOD RISE · STRIKE 721.45 · OPEN ABOVE STRIKE → BUY LESS | SELL MORE</b>
+    <p>Rising IV above strike decreases dealer delta — they buy less or sell more. Spot opens <b>+6.83</b> over the strike, and the verdict rests almost entirely on Branch A.</p>
+  </div>
+</div>
+
+<div class="ctx">
+  <h3>FLOW CONTEXT — THE DEALER TABLE BEFORE THE BELL</h3>
+  <div class="ctxgrid">
+    <div class="cell c-r">
+      <div class="h">IV EOD — VERDICT</div>
+      <div class="v" style="color:var(--red)">BUY LESS | SELL MORE</div>
+      <p>Both branches Rise. Above strike, rise IV <span class="hl-r">decreases dealer delta</span> → they buy less or sell more.</p>
+    </div>
+    <div class="cell c-a">
+      <div class="h">STRIKE REF</div>
+      <div class="v" style="color:var(--amber)">721.45</div>
+      <p>Prior close, platform EOD. Sources span <span class="hl">0.28</span>: platform 721.45 · TradingView 721.73.</p>
+    </div>
+    <div class="cell c-w">
+      <div class="h">SPOT VS STRIKE</div>
+      <div class="v">ABOVE &nbsp;728.28</div>
+      <p><span class="hl">+6.83</span> at 08:53 ET — <span class="hl-c">0.77× the expected move</span>.</p>
+    </div>
+    <div class="cell c-c">
+      <div class="h">EXPECTED MOVE</div>
+      <div class="v" style="color:var(--cyan)">± 8.86</div>
+      <p>From the Sep 18 ARV of 19.5%. Band <span class="hl-c">712.59 / 730.31</span> — and the <span class="hl-g">upper edge sits on the 730 call wall</span>. Usable today.</p>
+    </div>
+    <div class="cell c-g">
+      <div class="h">OVERNIGHT PATH</div>
+      <div class="v" style="color:var(--green)">722.24 → 728.28</div>
+      <p>Opened the week at 722.24, just above Friday's pin, and <span class="hl-g">ground up 6.9 points</span> to a high of <span class="hl">729.13</span> — 0.87 short of the 730 call wall. The post-OPEX unclench, already happening.</p>
+    </div>
+    <div class="cell c-a">
+      <div class="h">CONFLUENCE TOP</div>
+      <div class="conf"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span></div>
+      <div class="v" style="color:var(--amber)">725.00 &nbsp;·&nbsp; 4/5</div>
+      <p>Vanna and charm call resistance, 14.4K calls, the OI×IV bar and the vol-curve minimum at 7.9%. <span class="hl">3.28 below spot</span> — the level a fade is aimed at.</p>
+    </div>
+  </div>
+</div>
+
+<div class="ctx">
+  <h3>GREEKS &amp; STRUCTURE — SEP 18 EOD BOARD (EXPIRED) + SEP 21 PREMARKET BOOK</h3>
+  <div class="ctxgrid">
+    <div class="cell c-w">
+      <div class="h">GAMMA / DELTA — EXPIRED BOARD</div>
+      <div class="v">SPOT ABOVE EVERYTHING</div>
+      <p>Gamma flip <span class="hl">717.36</span>, wall 720; delta flip 724.53. Spot is above every one of them. GEX <span class="hl-g">+$7.92B / −$4.11B</span>, DEX <span class="hl-g">+$29.99B / −$2.63B</span> — the numbers of the quarterly book that <span class="hl-r">expired on Friday</span>. Read as long gamma, low confidence.</p>
+    </div>
+    <div class="cell c-g">
+      <div class="h">VANNA — VEX · OPPOSES</div>
+      <div class="v" style="color:var(--green)">FLIP 721.47</div>
+      <p>Wall and put support 720, call resistance 725. Balance <span class="hl">+$135.0M / −$170.2M</span>, net negative → Vanna −. <span class="hl-g">TH2 with IV rising means Long NQ</span> — against the verdict. At 1.26 to 1, borderline uncommitted.</p>
+    </div>
+    <div class="cell c-r">
+      <div class="h">CHARM — CHEX · ALL BELOW</div>
+      <div class="v" style="color:var(--red)">WALL 720</div>
+      <p>Charm wall and put support <span class="hl-r">720</span>, call resistance <span class="hl-r">725</span> — every magnet under price, the nearest 3.28 away and well inside 2× EM. Balance +$1.2M / −$105K.</p>
+    </div>
+    <div class="cell c-v">
+      <div class="h">OPEN INTEREST — SEP 21</div>
+      <div class="v" style="color:var(--violet)">730 · 30.2K &nbsp;|&nbsp; 725 · 14.4K</div>
+      <p>Calls <span class="hl-g">730 30.2K</span> — the largest strike on the board, 1.72 above spot — then 725 14.4K, 735 10.2K, 720 7.2K. Puts <span class="hl-v">715 23.4K</span>, 710 13.7K, 717 10.0K. Spot sits between the two call blocks.</p>
+    </div>
+    <div class="cell c-c">
+      <div class="h">OI × IV</div>
+      <div class="v" style="color:var(--cyan)">TROUGH 7.9% AT 725</div>
+      <p>Curve reads 14.1% at 700, <span class="hl-c">7.9% at 725–726</span>, 8.2% at spot and 8.8% at 730, rising to 13.1% by 742. The cheapest strike on the board sits <span class="hl-a">3 points under price</span>.</p>
+    </div>
+    <div class="cell c-w">
+      <div class="h">SKEW</div>
+      <div class="v">NO INPUT</div>
+      <p>No Volatility Skew screenshot supplied; read from the OI×IV curve alone. The whole strip is cheap — <span class="hl-g">8 to 14%</span> — so buying premium is inexpensive today.</p>
+    </div>
+  </div>
+</div>
+
+<div class="warn">
+  <b>Five things to weigh before sizing — this is the Monday after quarterly OPEX.</b>
+  <b>The greeks board expired on Friday.</b> It is the Sep 18 quarterly book, the largest of the quarter, and every flip and wall on it — 717.36, 720, 721.30, 721.47, 724.53 — sits below spot and describes contracts that no longer exist. The only live strike map is the Sep 21 open interest. <b>The pin is gone.</b> Friday closed at 721.45, pinned just above the 101K strike at 720. With that book expired the dampening went with it, and price has already moved +6.83 overnight. <b>Branch B is flat.</b> +0.3 points at 4 of 6 hours is inside reading error. The verdict rests on Branch A alone, and Branch A's Sep 17 value itself read 9.6% and 7.6% on two captures with the same end time. <b>Vanna opposes the verdict.</b> TH2 with IV rising is a long, at a borderline 1.26 to 1 balance. <b>Options are cheap.</b> The whole curve sits at 8–14%. Debit structures cost little today, which also means the market is not paying for a large move.
+</div>
+
+<!-- S1 -->
+<div class="scn">
+  <div class="grid">
+    <div class="col">
+      <div class="head">
+        <span class="tag mono">S1</span>
+        <span class="tag time mono">09:45–16:00</span>
+        <h2>BUY LESS | SELL MORE — FADE THE 730 WALL BACK TO THE 725 CONFLUENCE</h2>
+        <div class="odds o-hi"><b>50%</b><span>MOST LIKELY</span><i>score +5.0</i></div>
+      </div>
+
+      <div class="thesis r">
+        <b>IV rising above strike → delta decreases → dealers buy less or sell more, and the largest strike on the board sits 1.72 overhead.</b>
+        Fade 729.20–730.00, targets 727.00 · 725.00 · 722.26.
+      </div>
+
+      <p class="sub">Verdict, charm, the vol trough and the 30.2K call wall all point at the same short. Vanna is the only layer on the other side.</p>
+
+      <div class="lbl">SETUP STATUS — TAP TO MARK CURRENT STATE</div>
+      <div class="states">
+        <div class="st armed on" tabindex="0" role="button"><h4>ARMED</h4><p>Rejection in 729.20–730.00 after the opening range</p></div>
+        <div class="st rearm" tabindex="0" role="button"><h4>RE-ARM</h4><p>5m close back under 727.40</p></div>
+        <div class="st dead" tabindex="0" role="button"><h4>DEAD</h4><p>5m close above 730.60</p></div>
+      </div>
+
+      <div class="body">
+        <p>Branch A reads <span class="hl">7.6% → 15.3%</span>, Branch B <span class="hl">14.9% → 15.2%</span>. Both Rise and price opens 6.83 above the 721.45 strike, so the table returns <em>rising IV above strike decreases dealer delta → <span class="hl-r">buy less or sell more</span>.</em></p>
+        <p>The book gives the fade a precise location: <span class="hl-g">730 carries 30.2K calls</span>, the largest strike anywhere, and the expected-move upper edge lands on it at 730.31. The overnight high of 729.13 has already stalled 0.87 short. Underneath, <span class="hl-a">725 is a 4/5 confluence</span> — vanna and charm call resistance, 14.4K calls and the vol-curve minimum — which makes it the natural first destination.</p>
+        <ul class="dash">
+          <li>Every charm magnet sits below price — 725 and 720 — and the nearest is inside 2× EM, so the layer carries full weight</li>
+          <li>The OI×IV curve bottoms at <span class="hl-c">7.9% at 725–726</span>, under spot</li>
+          <li>Put debit spreads into 727–725 are cheap: the whole strip trades at 8–10%</li>
+          <li><span class="hl-g">Counter-argument:</span> vanna is TH2 with IV rising — a long — and this is the Monday after OPEX, historically a trend window</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="lbl">ENTRIES</div>
+      <div class="entry">
+        <div class="k">FADE THE 730 WALL</div>
+        <div class="px r">729.20–730.00</div>
+        <div class="tap mono">tap @ 729.60</div>
+        <div class="why">Short into a retest of the 30.2K call wall and the EM upper edge. Closed 5m rejection inside the zone required; no entry before the opening fifteen-minute range has completed.</div>
+        <div class="rr mono">T1 727.00 (40%) · T2 725.00 (40%) · T3 722.26 runner · stop 730.60 · R:R 2.6:1 → 7.3:1</div>
+      </div>
+      <div class="entry">
+        <div class="k">SHELF-LOSS ADD</div>
+        <div class="px r">BELOW 727.40</div>
+        <div class="tap mono">tap @ 727.20</div>
+        <div class="why">Only on a 5m close under the overnight shelf at 727.40. That breaks the grind that built this morning's move and puts the 725 confluence one step away.</div>
+        <div class="rr mono">T1 725.00 (60%) · T2 722.26 (40%) · stop 728.60 · R:R 1.6:1 → 3.5:1 · half size</div>
+      </div>
+
+      <div class="lbl" style="margin-top:20px">CONFIRM — ALL FOUR OR NO TRADE</div>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Opening 15m range complete, and 730 not closed through</span></label>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Closed 5m rejection inside 729.20–730.00 — not a touch, not a wick</span></label>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>IV keeps rising intraday — the Rise verdict has to stay true</span></label>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Cumulative flow negative — Sep 18 finished on the put side</span></label>
+      <div class="tally mono" data-tally>0 / 4 CONFIRMED — NO TRADE</div>
+    </div>
+
+    <div class="col">
+      <div class="lbl">LEVEL MAP</div>
+      <div class="lv"><span class="n g">735.00</span><span class="t mono">CALL OI 10.2K</span><p>Next strike of size above the wall. Only relevant if S3 fires.</p></div>
+      <div class="lv"><span class="n r">730.60</span><span class="t mono">S1 STOP = S3 BUFFER</span><p>Just above the S3 trigger at 730.50 — the fade stop sits past the opposing trigger, not inside it.</p></div>
+      <div class="lv"><span class="n c">730.31</span><span class="t mono">EM UPPER EDGE</span><p>Strike + 8.86. Lands on the call wall.</p></div>
+      <div class="lv"><span class="n g">730.00</span><span class="t mono">CALL WALL · 30.2K</span><span class="cf">2/5</span><p>Largest strike on the board. The entry zone is built on it.</p></div>
+      <div class="lv"><span class="n w">729.13</span><span class="t mono">OVERNIGHT HIGH</span><p>Stalled 0.87 under the wall.</p></div>
+      <div class="lv"><span class="n w">728.28</span><span class="t mono">SPOT 08:53</span><p>+6.83 over strike, 0.77× the expected move.</p></div>
+      <div class="lv"><span class="n a">727.40</span><span class="t mono">OVERNIGHT SHELF</span><p>Where the grind paused before the last leg. Add trigger.</p></div>
+      <div class="lv"><span class="n a">725.00</span><span class="t mono">CONFLUENCE · 14.4K</span><span class="cf">4/5</span><p>Vanna and charm call resistance, OI peak, OI×IV bar, vol trough. Main target.</p></div>
+      <div class="lv"><span class="n w">722.26</span><span class="t mono">pRTH HIGH</span><p>Friday's high. Runner target.</p></div>
+      <div class="lv"><span class="n c">721.45</span><span class="t mono">STRIKE</span><p>Friday's close. TradingView reads 721.73.</p></div>
+      <div class="lv"><span class="n r">720.00</span><span class="t mono">EXPIRED WALLS</span><span class="cf">3/5</span><p>Gamma, vanna and charm walls from the expired board. Beyond today's plan.</p></div>
+    </div>
+  </div>
+  <div class="foot">
+    <div><span class="k g mono">IF THIS PLAYS OUT</span>A close near 725 puts spot back on the 4/5 confluence, 3.5 above strike — tomorrow's table returns the same verdict from a tighter distance.</div>
+    <div><span class="k r mono">IF THIS DIES</span>5m close above 730.60 clears the call wall and hands the session to S3.</div>
+  </div>
+</div>
+
+<!-- S2 -->
+<div class="scn">
+  <div class="grid">
+    <div class="col">
+      <div class="head">
+        <span class="tag mono">S2</span>
+        <span class="tag time v mono">10:00–15:00</span>
+        <h2>ROTATE BETWEEN THE CALL BLOCKS — WORK THE 725 TO 730 BAND</h2>
+        <div class="odds o-md"><b>40%</b><span>SECONDARY</span><i>score +4.0</i></div>
+      </div>
+
+      <div class="thesis v">
+        <b>Spot opens between a 14.4K strike and a 30.2K strike on a board that still reads long gamma.</b>
+        Fade 725.00–725.50 long and 729.40–729.90 short, quarter size.
+      </div>
+
+      <p class="sub">Nine points behind S1. The two call blocks bracket spot cleanly; what argues against a range is that the board producing the long-gamma read has already expired.</p>
+
+      <div class="lbl">SETUP STATUS — TAP TO MARK CURRENT STATE</div>
+      <div class="states">
+        <div class="st armed" tabindex="0" role="button"><h4>ARMED</h4><p>Both edges respected with flow flat</p></div>
+        <div class="st rearm" tabindex="0" role="button"><h4>RE-ARM</h4><p>Return to an edge after stalling mid-band</p></div>
+        <div class="st dead" tabindex="0" role="button"><h4>DEAD</h4><p>5m close outside 724.40 or 730.60</p></div>
+      </div>
+
+      <div class="body">
+        <p>The Sep 21 book puts <span class="hl-g">30.2K calls at 730</span> above and <span class="hl-g">14.4K at 725</span> below, with the strikes between holding far less. Dealers hedging both blocks have an interest in price staying between them, and the expected-move band's upper edge at 730.31 agrees on the ceiling.</p>
+        <p>The honest discount: <em>the long-gamma reading comes from the expired Sep 18 board</em>, and the Monday after quarterly OPEX is when that dampening is weakest. This is a scalping frame with real edges, not a thesis.</p>
+        <ul class="dash">
+          <li>Working band <span class="hl-v">725.00 – 730.00</span>, midpoint 727.50</li>
+          <li>The high edge is the same trade as S1 — if both arm, take S1</li>
+          <li>Low edge sits on the 4/5 confluence; a break there hands the session to S1's targets</li>
+          <li>Quarter size and midpoint exits only</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="lbl">ENTRIES</div>
+      <div class="entry">
+        <div class="k">FADE THE LOW EDGE</div>
+        <div class="px v">725.00–725.50</div>
+        <div class="tap mono">tap @ 725.30</div>
+        <div class="why">Scalp long off the 4/5 confluence. Counter-trend to the verdict — smallest size, midpoint exit, skip it if 727.40 has already failed on a 5m close.</div>
+        <div class="rr mono">T1 727.00 (60%) · T2 728.50 (40%) · stop 724.40 · R:R 1.9:1 → 3.6:1 · quarter size</div>
+      </div>
+      <div class="entry">
+        <div class="k">FADE THE HIGH EDGE</div>
+        <div class="px v">729.40–729.90</div>
+        <div class="tap mono">tap @ 729.70</div>
+        <div class="why">Scalp short under the call wall. Same direction as S1 with a nearer target — take one or the other, not both.</div>
+        <div class="rr mono">T1 727.50 (60%) · T2 726.00 (40%) · stop 730.60 · R:R 2.4:1 → 4.1:1 · quarter size</div>
+      </div>
+
+      <div class="lbl" style="margin-top:20px">CONFIRM — ALL FOUR OR NO TRADE</div>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Both edges have rejected at least once in RTH</span></label>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Closed 5m rejection inside the zone — not a touch</span></label>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>IV flat rather than rising hard — fast expansion favours S1</span></label>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Quarter size — the long-gamma read comes from an expired board</span></label>
+      <div class="tally mono" data-tally>0 / 4 CONFIRMED — NO TRADE</div>
+    </div>
+
+    <div class="col">
+      <div class="lbl">LEVEL MAP</div>
+      <div class="lv"><span class="n r">730.60</span><span class="t mono">BAND CEILING</span><p>Above the call wall. A 5m close through promotes S3.</p></div>
+      <div class="lv"><span class="n g">730.00</span><span class="t mono">CALL WALL · 30.2K</span><p>Upper edge.</p></div>
+      <div class="lv"><span class="n c">727.50</span><span class="t mono">BAND MIDPOINT</span><p>Exit for both scalps.</p></div>
+      <div class="lv"><span class="n a">725.00</span><span class="t mono">CONFLUENCE · 14.4K</span><span class="cf">4/5</span><p>Lower edge.</p></div>
+      <div class="lv"><span class="n r">724.40</span><span class="t mono">BAND INVALID</span><p>Under the confluence. Range void, S1 takes over.</p></div>
+    </div>
+  </div>
+  <div class="foot">
+    <div><span class="k g mono">IF THIS PLAYS OUT</span>A close inside 725–730 holds the overnight gain without extending it.</div>
+    <div><span class="k r mono">IF THIS DIES</span>Either edge breaks on a 5m close: below 724.40 → S1, above 730.60 → S3.</div>
+  </div>
+</div>
+
+<!-- S3 -->
+<div class="scn">
+  <div class="grid">
+    <div class="col">
+      <div class="head">
+        <span class="tag mono">S3</span>
+        <span class="tag time g mono">10:00–16:00</span>
+        <h2>POST-OPEX CONTINUATION — CLEAR THE 730 CALL WALL</h2>
+        <div class="odds o-lo"><b>10%</b><span>LEAST LIKELY</span><i>score -3.0</i></div>
+      </div>
+
+      <div class="thesis g">
+        <b>Vanna is TH2 with IV rising — a long — and this is the Monday after quarterly OPEX.</b>
+        Long on a 5m close above 730.50, targets 732.00 · 735.00.
+      </div>
+
+      <p class="sub">Ranked last. It is also the branch type that has won three of the last five sessions. Have the trigger written down.</p>
+
+      <div class="lbl">SETUP STATUS — TAP TO MARK CURRENT STATE</div>
+      <div class="states">
+        <div class="st armed" tabindex="0" role="button"><h4>ARMED</h4><p>5m close above 730.50 with flow turning positive</p></div>
+        <div class="st rearm" tabindex="0" role="button"><h4>RE-ARM</h4><p>Retest of 730.00 from above that holds</p></div>
+        <div class="st dead" tabindex="0" role="button"><h4>DEAD</h4><p>5m close back below 729.20</p></div>
+      </div>
+
+      <div class="body">
+        <p>Two things keep this branch alive. <em>Vanna is net negative with IV rising, which is TH2's long</em>, and the quarterly book that pinned Friday has expired — the Monday after OPEX is historically when trends get room. Price has already moved +6.83 without a single RTH candle.</p>
+        <p>Against it: <span class="hl-r">the verdict, charm and the vol trough all point down</span>, and it has to break the largest strike on the board. Above 730 the next size is 735 at 10.2K; the curve climbs from 8.8% at 730 to 13.1% by 742, so upside premium gets more expensive quickly.</p>
+        <ul class="dash">
+          <li>Trigger is strict: <span class="hl-g">5m close above 730.50</span>, clear of the call wall and the EM edge</li>
+          <li>Call debit spreads 730–735, where the curve is still under 10%</li>
+          <li><span class="hl-r">Do not pre-position</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="lbl">ENTRIES</div>
+      <div class="entry">
+        <div class="k">WALL BREAK LONG</div>
+        <div class="px g">ABOVE 730.50</div>
+        <div class="tap mono">tap @ 730.70</div>
+        <div class="why">5m close only. Call debit spread into 732–735.</div>
+        <div class="rr mono">T1 732.00 (50%) · T2 735.00 (50%) · stop 729.20 · R:R 0.9:1 → 2.9:1</div>
+      </div>
+      <div class="entry">
+        <div class="k">RETEST ADD</div>
+        <div class="px a">730.00–730.40</div>
+        <div class="tap mono">tap @ 730.20</div>
+        <div class="why">Only with the first leg green. The 30.2K wall flipping to support is the one thing that makes this credible.</div>
+        <div class="rr mono">T1 735.00 (100%) · stop 729.20 · R:R 4.8:1 · half size</div>
+      </div>
+
+      <div class="lbl" style="margin-top:20px">CONFIRM — ALL FOUR OR NO TRADE</div>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>5m close above 730.50 — wicks through the wall do not count</span></label>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>IV stabilising or falling — this branch needs the verdict to lose force</span></label>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Cumulative flow clearly positive</span></label>
+      <label class="chk"><input type="checkbox"><span class="box"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4.5 9L10.5 2.5" stroke="#0a0a0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Size cut — fights the verdict, charm and the vol trough</span></label>
+      <div class="tally mono" data-tally>0 / 4 CONFIRMED — NO TRADE</div>
+    </div>
+
+    <div class="col">
+      <div class="lbl">LEVEL MAP</div>
+      <div class="lv"><span class="n r">742.00</span><span class="t mono">CURVE 13.1%</span><p>Upside premium expensive from here.</p></div>
+      <div class="lv"><span class="n g">735.00</span><span class="t mono">CALL OI 10.2K</span><p>Second target.</p></div>
+      <div class="lv"><span class="n g">732.00</span><span class="t mono">FIRST TARGET</span><p>Thin book between 730 and 735.</p></div>
+      <div class="lv"><span class="n a">730.50</span><span class="t mono">TRIGGER</span><p>Clear of the wall and the EM edge.</p></div>
+      <div class="lv"><span class="n r">729.20</span><span class="t mono">INVALIDATION</span><p>Back under the wall.</p></div>
+    </div>
+  </div>
+  <div class="foot">
+    <div><span class="k g mono">IF THIS PLAYS OUT</span>A close above 732 would mean the buy-less verdict failed outright — the fourth time in six sessions the continuation branch has paid.</div>
+    <div><span class="k r mono">IF THIS DIES</span>5m close back under 729.20 returns control to S1 or S2.</div>
+  </div>
+</div>
+
+<div class="warn">
+  <b>Execution rules for the session.</b> No entry until the opening fifteen-minute range is complete, then trade its break or its rejection. Not a fixed clock. Every trigger and every kill line is a 5m CLOSE, never a wick. Where a fade zone abuts the opposing scenario&#x27;s trigger, the fade stop sits just above that trigger and a closed 5m rejection candle inside the zone is required. Two scenarios pointing the same way are one idea. Take the higher-ranked one. Spreads, not outrights. Check which side of the vol curve is rich before choosing the structure. Near-even dealer balances mean uncommitted positioning - size down, take first targets, runners are the exception. Under the gamma flip do not average into a break and do not hold a fade through its stop. The Call−Put signal goes to <b>6 of 11</b>: Sep 16's +5.4K resolved up, Sep 17's −11.1K resolved the wrong way on OPEX day. Sep 18 printed <b>−9.7K</b>, pointing down into today — against the overnight move so far. <b>DC conversion pending</b>: the 09:20 QQQ + NQ1! pair is still to come.
+</div>
+
+<p class="note">Scenario weights are relative scores across three branches, not probabilities of profit. Sources — IV from the Sep 17 and Sep 18 Volatility Flow, 0DTE OTM; Branch A from the closing value, Branch B from the session average; GEX, DEX, VEX and CHEX from the Sep 18 EOD 0DTE board — the quarterly expiry, now expired, with spot above every level on it; open interest and OI×IV from the Sep 21 premarket snapshot; no Volatility Skew screenshot was supplied; price structure from the 08:53 premarket chart. Expected move 8.86 from the Sep 18 ARV of 19.5%, band 712.59 to 730.31. Prior close 721.45 platform against 721.73 TradingView. Chart and flow reading within the QUANTDECAY framework, not financial advice.</p>
+
+<div class="copyright">
+  &copy; <b>QUANTDECAY</b> — ALL RIGHTS RESERVED.<br>
+  <span class="no">REPRODUCTION, DISTRIBUTION OR COPYING IN ANY FORM IS STRICTLY PROHIBITED.</span>
+</div>
+
+<script>
+  document.querySelectorAll('.states').forEach(function(group){
+    group.querySelectorAll('.st').forEach(function(btn){
+      function pick(){
+        group.querySelectorAll('.st').forEach(function(b){ b.classList.remove('on'); });
+        btn.classList.add('on');
+      }
+      btn.addEventListener('click', pick);
+      btn.addEventListener('keydown', function(e){
+        if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pick(); }
+      });
+    });
+  });
+  document.querySelectorAll('.col').forEach(function(col){
+    var tally = col.querySelector('[data-tally]');
+    if(!tally) return;
+    var boxes = col.querySelectorAll('.chk input');
+    function update(){
+      var n = 0;
+      boxes.forEach(function(b){ if(b.checked) n++; });
+      if(n === boxes.length){
+        tally.textContent = n + ' / ' + boxes.length + ' CONFIRMED — CLEAR TO TRADE';
+        tally.classList.add('ok');
+      } else {
+        tally.textContent = n + ' / ' + boxes.length + ' CONFIRMED — NO TRADE';
+        tally.classList.remove('ok');
+      }
+    }
+    boxes.forEach(function(b){ b.addEventListener('change', update); });
+    update();
+  });
+</script>
+
+
+</body>
+</html>

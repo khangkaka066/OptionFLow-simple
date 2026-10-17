@@ -14,6 +14,8 @@ _GZIP_MIN_BYTES = 512
 from .cache import ResponseCache
 from .greek_surface_service import GreekSurfaceService
 from .intraday_service import IntradayService
+from .net_drift_service import NetDriftService
+from .xynth_flow_service import XynthFlowService
 from .snapshot_service import SnapshotService
 from .web_assets import read_index_html, resolve_asset_path
 
@@ -25,6 +27,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     snapshot_service: SnapshotService | None = None
     intraday_service: IntradayService | None = None
     greek_surface_service: GreekSurfaceService | None = None
+    net_drift_service: NetDriftService | None = None
+    xynth_flow_service: XynthFlowService | None = None
     apply_secondary_basis = None
     response_cache = ResponseCache(max_entries=64)
     history_cache_ttl_seconds: float = 120.0
@@ -52,6 +56,30 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/state":
             self.send_json_payload(self.state.snapshot())
+            return
+        if parsed.path == "/api/xynth-flow":
+            if self.xynth_flow_service is None:
+                self.send_json_payload({"error": "Xynth Flow service unavailable"}, HTTPStatus.SERVICE_UNAVAILABLE)
+            else:
+                self.send_json_payload(self.xynth_flow_service.snapshot())
+            return
+        if parsed.path == "/api/net-drift":
+            query = parse_qs(parsed.query)
+            ticker = query.get("ticker", [self.ticker])[0] or self.ticker
+            trade_date = query.get("date", [""])[0] or None
+            cache_key = ("net_drift", ticker.upper(), trade_date)
+            cached = self.response_cache.get(cache_key, 60.0)
+            try:
+                if cached is None:
+                    if self.net_drift_service is None:
+                        raise RuntimeError("Net Drift service is unavailable")
+                    cached = self.json_bytes(self.net_drift_service.load(ticker, trade_date))
+                    self.response_cache.set(cache_key, cached)
+                self.send_bytes(cached, "application/json")
+            except (ValueError, RuntimeError) as exc:
+                self.send_json_payload({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            except Exception as exc:
+                self.send_json_payload({"error": f"InsiderFinance unavailable: {exc}"}, HTTPStatus.BAD_GATEWAY)
             return
         if parsed.path == "/api/history":
             started = time.perf_counter()
@@ -344,6 +372,8 @@ def configure_handler(
     snapshot_service: SnapshotService,
     intraday_service: IntradayService,
     greek_surface_service: GreekSurfaceService,
+    net_drift_service: NetDriftService | None = None,
+    xynth_flow_service: XynthFlowService | None = None,
     apply_secondary_basis,
     cors_allowed_origin: str = "*",
     greek_surface_enabled: bool = True,
@@ -357,6 +387,8 @@ def configure_handler(
     ConfiguredDashboardRequestHandler.snapshot_service = snapshot_service
     ConfiguredDashboardRequestHandler.intraday_service = intraday_service
     ConfiguredDashboardRequestHandler.greek_surface_service = greek_surface_service
+    ConfiguredDashboardRequestHandler.net_drift_service = net_drift_service
+    ConfiguredDashboardRequestHandler.xynth_flow_service = xynth_flow_service
     ConfiguredDashboardRequestHandler.apply_secondary_basis = staticmethod(apply_secondary_basis)
     ConfiguredDashboardRequestHandler.cors_allowed_origin = cors_allowed_origin
     ConfiguredDashboardRequestHandler.greek_surface_enabled = greek_surface_enabled

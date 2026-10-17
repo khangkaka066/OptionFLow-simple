@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from exposure import aggregate_by_strike, aggregate_greeks_by_expiry_strike, compute_expected_move, compute_greeks, find_expected_move_anchor, interpolate_iv_by_strike
+from exposure import aggregate_by_strike, aggregate_greeks_by_expiry_strike, compute_all_flips, compute_expected_move, compute_flip, compute_greeks, find_expected_move_anchor, interpolate_iv_by_strike
 
 
 def option_chain() -> pd.DataFrame:
@@ -165,69 +165,69 @@ def test_compute_expected_move_missing_inputs_returns_none() -> None:
     assert compute_expected_move(100.0, 20.0, None) is None
 
 
-def test_find_expected_move_anchor_returns_none_for_empty_or_before_open() -> None:
+def test_find_expected_move_anchor_returns_none_for_empty_or_before_915() -> None:
     market_open = "2026-09-01T13:30:00+00:00"
     assert find_expected_move_anchor([], market_open, "QQQ") is None
     points = [
-        {"time": "2026-09-01T13:29:59+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"}
+        {"time": "2026-09-01T13:14:59+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"}
     ]
     assert find_expected_move_anchor(points, market_open, "QQQ") is None
 
 
-def test_find_expected_move_anchor_prefers_the_935_936_window() -> None:
+def test_find_expected_move_anchor_prefers_the_915_916_window() -> None:
     market_open = "2026-09-01T13:30:00+00:00"
     points = [
-        {"time": "2026-09-01T13:30:00+00:00", "spot": 101.0, "atm_iv": 21.0, "expiry": "2026-09-01"},
-        {"time": "2026-09-01T13:37:00+00:00", "spot": 103.0, "atm_iv": 25.0, "expiry": "2026-09-01"},
-        {"time": "2026-09-01T13:35:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:14:00+00:00", "spot": 101.0, "atm_iv": 21.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:17:00+00:00", "spot": 103.0, "atm_iv": 25.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:15:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"},
     ]
     anchor = find_expected_move_anchor(points, market_open, "QQQ")
     assert anchor is not None
     assert anchor["ticker"] == "QQQ"
-    assert anchor["captured_at"].startswith("2026-09-01T13:35:00")
+    assert anchor["captured_at"].startswith("2026-09-01T13:15:00")
     assert anchor["spot"] == 100.0
     assert anchor["atm_iv"] == 20.0
-    assert anchor["years_to_expiry"] == pytest.approx((6.5 * 60 - 5) / (365 * 24 * 60))
+    assert anchor["years_to_expiry"] == pytest.approx((6.5 * 60 + 15) / (365 * 24 * 60))
     assert anchor["upper2"] == pytest.approx(100.0 + anchor["move_abs"] * 2)
     assert anchor["lower2"] == pytest.approx(100.0 - anchor["move_abs"] * 2)
     assert anchor["upper"] == pytest.approx(100.0 + anchor["move_abs"])
     assert anchor["lower"] == pytest.approx(100.0 - anchor["move_abs"])
 
 
-def test_find_expected_move_anchor_accepts_936_when_935_missing() -> None:
+def test_find_expected_move_anchor_accepts_916_when_915_missing() -> None:
     market_open = "2026-09-01T13:30:00+00:00"
     points = [
-        {"time": "2026-09-01T13:30:00+00:00", "spot": 101.0, "atm_iv": 21.0, "expiry": "2026-09-01"},
-        {"time": "2026-09-01T13:36:30+00:00", "spot": 99.0, "atm_iv": 19.0, "expiry": "2026-09-01"},
-        {"time": "2026-09-01T13:37:00+00:00", "spot": 103.0, "atm_iv": 25.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:14:00+00:00", "spot": 101.0, "atm_iv": 21.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:16:30+00:00", "spot": 99.0, "atm_iv": 19.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:17:00+00:00", "spot": 103.0, "atm_iv": 25.0, "expiry": "2026-09-01"},
     ]
     anchor = find_expected_move_anchor(points, market_open, "QQQ")
     assert anchor is not None
-    assert anchor["captured_at"].startswith("2026-09-01T13:36:30")
+    assert anchor["captured_at"].startswith("2026-09-01T13:16:30")
     assert anchor["spot"] == 99.0
 
 
-def test_find_expected_move_anchor_falls_back_to_first_point_when_935_missing() -> None:
+def test_find_expected_move_anchor_falls_back_to_first_point_after_915() -> None:
     market_open = "2026-09-01T13:30:00+00:00"
     points = [
-        {"time": "2026-09-01T13:31:00+00:00", "spot": 102.0, "atm_iv": 30.0, "expiry": "2026-09-01"},
-        {"time": "2026-09-01T13:30:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:18:00+00:00", "spot": 102.0, "atm_iv": 30.0, "expiry": "2026-09-01"},
+        {"time": "2026-09-01T13:14:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"},
     ]
     anchor = find_expected_move_anchor(points, market_open, "QQQ")
     assert anchor is not None
-    assert anchor["captured_at"].startswith("2026-09-01T13:30:00")
-    assert anchor["spot"] == 100.0
+    assert anchor["captured_at"].startswith("2026-09-01T13:18:00")
+    assert anchor["spot"] == 102.0
 
 
 def test_find_expected_move_anchor_uses_snapshot_time_for_0dte() -> None:
     market_open = "2026-09-01T13:30:00+00:00"
     early = find_expected_move_anchor(
-        [{"time": "2026-09-01T13:35:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"}],
+        [{"time": "2026-09-01T13:15:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"}],
         market_open,
         "QQQ",
     )
-    # No 9:35 snapshot that day -> falls back to the first point at/after
-    # open, even a very late one, rather than leaving the anchor empty.
+    # No 9:15 snapshot that day -> falls back to the first point at/after
+    # 9:15, even a very late one, rather than leaving the anchor empty.
     late = find_expected_move_anchor(
         [{"time": "2026-09-01T19:30:00+00:00", "spot": 100.0, "atm_iv": 20.0, "expiry": "2026-09-01"}],
         market_open,
@@ -236,6 +236,63 @@ def test_find_expected_move_anchor_uses_snapshot_time_for_0dte() -> None:
 
     assert early is not None
     assert late is not None
-    assert early["years_to_expiry"] == pytest.approx((6.5 * 60 - 5) / (365 * 24 * 60))
+    assert early["years_to_expiry"] == pytest.approx((6.5 * 60 + 15) / (365 * 24 * 60))
     assert late["years_to_expiry"] == pytest.approx((30 / (365 * 24 * 60)))
     assert early["move_abs"] > late["move_abs"]
+
+
+def test_compute_all_flips_finds_every_zero_crossing() -> None:
+    # Raw per-strike values whose CUMULATIVE sum goes -5,-2,3,7,-3,5 as strike
+    # ascends (signs -,-,+,+,-,+) -> crossings between (101,102), (103,104),
+    # and (104,105).
+    by_strike = pd.DataFrame({
+        "strike": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+        "net_gex": [-5.0, 3.0, 5.0, 4.0, -10.0, 8.0],
+    })
+    flips = compute_all_flips(by_strike, "net_gex")
+    assert len(flips) == 3
+    assert flips == sorted(flips)
+    assert 101.0 < flips[0] < 102.0
+    assert 103.0 < flips[1] < 104.0
+    assert 104.0 < flips[2] < 105.0
+
+
+def test_compute_all_flips_empty_when_no_sign_change() -> None:
+    by_strike = pd.DataFrame({"strike": [100.0, 101.0, 102.0], "net_gex": [1.0, 2.0, 3.0]})
+    assert compute_all_flips(by_strike, "net_gex") == []
+
+
+def test_compute_flip_picks_nearest_of_several_crossings() -> None:
+    by_strike = pd.DataFrame({
+        "strike": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+        "net_gex": [-5.0, 3.0, 5.0, 4.0, -10.0, 8.0],
+    })
+    flips = compute_all_flips(by_strike, "net_gex")
+    # Spot sitting right next to the third crossing (between 104 and 105).
+    nearest = compute_flip(by_strike, "net_gex", spot=104.5)
+    assert nearest == pytest.approx(flips[2])
+
+
+def test_compute_all_flips_local_mode_finds_raw_sign_change_with_no_cumulative_crossing() -> None:
+    # Symmetric-around-the-money shape typical of Gamma/Vanna/Charm: the
+    # cumulative sum stays positive throughout (1, 3, 4, 2, 3), so cumulative
+    # mode finds nothing, even though the raw values do flip sign once.
+    by_strike = pd.DataFrame({
+        "strike": [100.0, 101.0, 102.0, 103.0, 104.0],
+        "net_gex": [1.0, 2.0, 1.0, -2.0, 1.0],
+    })
+    assert compute_all_flips(by_strike, "net_gex") == []
+    local_flips = compute_all_flips(by_strike, "net_gex", cumulative=False)
+    assert len(local_flips) == 2
+    assert 102.0 < local_flips[0] < 103.0
+    assert 103.0 < local_flips[1] < 104.0
+
+
+def test_compute_flip_local_mode_nearest_to_spot() -> None:
+    by_strike = pd.DataFrame({
+        "strike": [100.0, 101.0, 102.0, 103.0, 104.0],
+        "net_gex": [1.0, 2.0, 1.0, -2.0, 1.0],
+    })
+    local_flips = compute_all_flips(by_strike, "net_gex", cumulative=False)
+    nearest = compute_flip(by_strike, "net_gex", spot=103.8, cumulative=False)
+    assert nearest == pytest.approx(local_flips[1])

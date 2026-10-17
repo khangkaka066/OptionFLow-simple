@@ -24,9 +24,29 @@
   </div>
 </div>
 <div class="grid">
+  <div class="panel wide" id="xynthFlowPanel">
+    <div class="panel-header">
+      <span class="dot" style="background:#22D3EE"></span>Xynth Flow 0DTE
+      <span class="panel-subtitle" id="xynthFlowSession">Loading…</span>
+      <span class="panel-subtitle" id="xynthFlowStatus"></span>
+    </div>
+    <div class="body xynth-flow-body">
+      <div class="xynth-flow-legend">
+        <span><i class="xynth-legend-iv"></i>Trade IV</span>
+        <span><i class="xynth-legend-spot"></i>QQQ spot</span>
+        <span><i class="xynth-legend-call"></i>Call size</span>
+        <span><i class="xynth-legend-put"></i>Put size</span>
+        <span class="xynth-flow-caveat">0DTE only · trade IV · partial public sample</span>
+      </div>
+      <div class="xynth-flow-chart" id="xynthFlowChart">
+        <canvas id="xynthFlowCanvas" aria-label="Xynth trade IV, QQQ spot and call put trade size over time"></canvas>
+        <div id="xynthFlowTooltip" class="heat-tooltip" hidden></div>
+      </div>
+    </div>
+  </div>
   <div class="panel wide">
     <div class="panel-header">
-      <span class="dot"></span>Volatility Flow
+      <span class="dot"></span>Volatility Flow <span class="panel-subtitle" id="volatilityFlowSession"></span>
       <div class="flow-controls">
         <select id="flowInterval">
           <option value="1">1m</option>
@@ -64,53 +84,37 @@
   </div>
   <div class="panel wide">
     <div class="panel-header">
-      <span class="dot"></span>Flow Tracker
+      <span class="dot"></span>Net Drift
       <div class="flow-controls">
-        <select id="trackerMode">
-          <option value="CALL_PUT" selected>Call / Put</option>
-          <option value="PREMIUM">Premium $ (beta)</option>
-        </select>
-        <select id="trackerInterval">
+        <input type="date" class="panel-date-picker" id="netDriftDate" aria-label="Net Drift date">
+        <button id="netDriftLatest" type="button">Latest</button>
+        <select id="netDriftInterval" aria-label="Net Drift interval">
           <option value="1" selected>1m</option>
           <option value="5">5m</option>
           <option value="15">15m</option>
           <option value="30">30m</option>
         </select>
-        <select id="trackerMoneyness">
+        <select id="netDriftExpiry" aria-label="Net Drift expiry">
           <option value="ALL">ALL</option>
-          <option value="ITM">ITM</option>
-          <option value="ATM" selected>ATM</option>
-          <option value="OTM">OTM</option>
+          <option value="0DTE">0DTE</option>
         </select>
-        <select id="trackerExpiry">
-          <option value="ALL">ALL</option>
-          <option value="0DTE" selected>0DTE</option>
+        <select id="netDriftTickerSelect" aria-label="Net Drift ticker">
+          <option value="QQQ">QQQ</option>
+          <option value="SPY">SPY</option>
         </select>
-        <div class="flow-line-menu">
-          <button id="trackerLinesToggle" type="button">Lines</button>
-          <div id="trackerLinesMenu" class="flow-line-popover">
-            <label><input type="checkbox" data-tracker-line="net" checked> Net smooth</label>
-            <label><input type="checkbox" data-tracker-line="netRaw"> Net raw</label>
-            <label><input type="checkbox" data-tracker-line="call" checked> Call smooth</label>
-            <label><input type="checkbox" data-tracker-line="callRaw"> Call raw</label>
-            <label><input type="checkbox" data-tracker-line="put" checked> Put smooth</label>
-            <label><input type="checkbox" data-tracker-line="putRaw"> Put raw</label>
-          </div>
-        </div>
-        <span id="trackerTicker" class="skew-readout">QQQ</span>
-        <button id="trackerResetZoom" type="button">reset zoom</button>
       </div>
     </div>
-    <div class="body flow-wrap" id="trackerWrap">
-      <canvas id="trackerCanvas" style="width:100%; height:100%; display:block;"></canvas>
-      <div id="trackerTooltip" class="heat-tooltip" style="display:none;"></div>
+    <div class="body flow-wrap net-drift-wrap" id="netDriftWrap">
+      <canvas id="netDriftCanvas" style="width:100%; height:100%; display:block;"></canvas>
+      <div id="netDriftTooltip" class="heat-tooltip net-drift-tooltip" style="display:none;"></div>
+      <div id="netDriftStatus" class="net-drift-status">Loading InsiderFinance public flow…</div>
     </div>
   </div>
   <div class="panel">
     <div class="panel-header"><span class="dot"></span>IV Rank<input type="date" class="panel-date-picker" id="ivRankDate"></div>
     <div class="body"><div id="ivrank" style="height:340px;"></div></div>
   </div>
-  <div class="panel wide skew-panel">
+  <div class="panel skew-panel">
     <div class="panel-header"><span class="dot" style="background:#FACC15"></span>Volatility Skew
       <div class="skew-controls">
         <input type="date" class="panel-date-picker skew-date-picker" id="skewDatePicker">
@@ -130,38 +134,6 @@
           </div>
         </div>
         <span id="skewTicker" class="skew-readout">QQQ</span>
-      </div>
-    </div>
-    <div class="skew-stats-grid" id="skewStatsGrid">
-      <div class="skew-stat-card">
-        <div class="skew-stat-label">ATM IV</div>
-        <div class="skew-stat-value" id="skewStatAtmIv">--</div>
-        <div class="skew-stat-sub" id="skewStatAtmStrike">Strike --</div>
-      </div>
-      <div class="skew-stat-card">
-        <div class="skew-stat-label">25&#916; Skew</div>
-        <div class="skew-stat-value" id="skewStat25dSkew">--</div>
-        <div class="skew-stat-sub" id="skewStat25dSkewSub">--</div>
-      </div>
-      <div class="skew-stat-card">
-        <div class="skew-stat-label">25&#916; Butterfly</div>
-        <div class="skew-stat-value" id="skewStat25dFly">--</div>
-        <div class="skew-stat-sub">Curvature vs ATM</div>
-      </div>
-      <div class="skew-stat-card">
-        <div class="skew-stat-label">10&#916; Skew</div>
-        <div class="skew-stat-value" id="skewStat10dSkew">--</div>
-        <div class="skew-stat-sub">Crash-hedge tilt</div>
-      </div>
-      <div class="skew-stat-card">
-        <div class="skew-stat-label">Skew Slope</div>
-        <div class="skew-stat-value" id="skewStatSlope">--</div>
-        <div class="skew-stat-sub">IV pts per 1% of strike</div>
-      </div>
-      <div class="skew-stat-card">
-        <div class="skew-stat-label">Term Slope</div>
-        <div class="skew-stat-value" id="skewStatTermSlope">--</div>
-        <div class="skew-stat-sub" id="skewStatTermSub">--</div>
       </div>
     </div>
     <div class="body skew-wrap" id="skewSmileView">
@@ -220,7 +192,8 @@
       <div id="dexDealerBalance" class="dealer-balance"></div>
     </div>
   </div>
-  <div class="panel wide">
+  <div class="heat-pair">
+  <div class="panel heat-pair__tracker">
     <div class="panel-header">
       <span class="dot"></span>Heat Tracker
       <span class="panel-subtitle">Intraday exposure by strike x time, with spot path overlay</span>
@@ -254,80 +227,38 @@
       <div id="gexribbonTooltip" class="heat-tooltip" style="display:none;"></div>
     </div>
   </div>
-  <div class="panel" id="exposureSurfacePanel">
+  <div class="panel heat-pair__ladder">
     <div class="panel-header">
-      <span class="dot" style="background:#22D3EE"></span>Exposure Surface
-      <span class="panel-subtitle">WebGL surface by strike x expiry</span>
-      <div class="surface3d__controls">
-        <select id="exposureTicker">
-          <option value="QQQ">QQQ</option>
-          <option value="NDX">NDX</option>
+      <span class="dot heat-ladder__dot"></span>Heat Ladder
+      <span class="panel-subtitle">Net GEX by strike × expiration</span>
+      <div class="heat-ladder__controls">
+        <select id="heatLadderMode" aria-label="Heat Ladder mode">
+          <option value="net">Net GEX</option>
+          <option value="call">Call GEX</option>
+          <option value="put">Put GEX</option>
         </select>
-        <select id="exposureGreek">
-          <option value="gex">GEX</option>
-          <option value="dex">DEX</option>
-          <option value="vex">VEX</option>
-          <option value="chex">CHEX</option>
+        <select id="heatLadderRange" aria-label="Heat Ladder strike range">
+          <option value="10">Near ±$10</option>
+          <option value="25">±$25</option>
+          <option value="50">±$50</option>
+          <option value="">All strikes</option>
         </select>
-        <select id="exposureMode">
-          <option value="net">Net</option>
-          <option value="call">Call</option>
-          <option value="put">Put</option>
-        </select>
-        <select id="exposureRange">
-          <option value="">Auto</option>
-          <option value="5">±5</option>
-          <option value="10">±10</option>
-          <option value="20">±20</option>
-          <option value="50">±50</option>
-          <option value="250">±250</option>
-        </select>
+        <input type="date" class="panel-date-picker" id="heatLadderDate" aria-label="Heat Ladder date">
+        <button id="heatLadderLatest" type="button">Latest</button>
       </div>
-      <input type="date" class="panel-date-picker" id="exposureDate">
     </div>
-    <div class="body surface3d__body">
-      <div class="surface3d__stage">
-        <div class="surface3d__canvas" id="exposure3dCanvas"></div>
-        <button class="chart-reset surface3d__reset" id="exposureResetView" type="button">reset view</button>
-        <div class="surface3d__bar" id="exposureLegend">
-          <span id="exposureLegendMin">-</span>
-          <div class="surface3d__gradient"></div>
-          <span id="exposureLegendMax">-</span>
-        </div>
+    <div class="body heat-ladder__body">
+      <div id="heatLadderStatus" class="heat-ladder__status">Loading expiration heatmap…</div>
+      <div class="heat-ladder__legend" aria-hidden="true">
+        <span class="heat-ladder__negative">Negative GEX</span>
+        <span class="heat-ladder__neutral">0</span>
+        <span class="heat-ladder__positive">Positive GEX</span>
       </div>
-      <div class="surface3d__status" id="exposureStatus">Loading...</div>
+      <div id="heatLadderScroll" class="heat-ladder__scroll">
+        <table id="heatLadderTable" class="heat-ladder__table" aria-label="GEX by strike and expiration"></table>
+      </div>
     </div>
   </div>
-  <div class="panel" id="rawgreekSurfacePanel">
-    <div class="panel-header">
-      <span class="dot" style="background:#22D3EE"></span>Greek Surface
-      <span class="panel-subtitle">WebGL surface by strike x expiry</span>
-      <div class="surface3d__controls">
-        <select id="rawgreekTicker">
-          <option value="QQQ">QQQ</option>
-          <option value="NDX">NDX</option>
-        </select>
-        <select id="rawgreekGreek">
-          <option value="gamma">Gamma</option>
-          <option value="delta">Delta</option>
-          <option value="theta">Theta</option>
-          <option value="vega">Vega</option>
-        </select>
-      </div>
-      <input type="date" class="panel-date-picker" id="rawgreekDate">
-    </div>
-    <div class="body surface3d__body">
-      <div class="surface3d__stage">
-        <div class="surface3d__canvas" id="rawgreek3dCanvas"></div>
-        <button class="chart-reset surface3d__reset" id="rawgreekResetView" type="button">reset view</button>
-        <div class="surface3d__bar" id="rawgreekLegend">
-          <span id="rawgreekLegendMin">-</span>
-          <div class="surface3d__gradient"></div>
-          <span id="rawgreekLegendMax">-</span>
-        </div>
-      </div>
-      <div class="surface3d__status" id="rawgreekStatus">Loading...</div>
-    </div>
   </div>
   <div class="panel wide">
     <div class="panel-header">
@@ -365,6 +296,7 @@
   <div class="panel wide">
     <div class="panel-header">
       <span class="dot" style="background:#22D3EE"></span>Key Level Summary
+      <input type="date" class="panel-date-picker" id="keyLevelDate">
     </div>
     <div class="body levels-body">
       <div class="levels-row">
@@ -372,16 +304,61 @@
           <span class="levels-tag" id="keyLevelTag">PENDING</span>
           <button type="button" id="keyLevelCopyBtn">Copy</button>
         </div>
-        <div id="keyLevelStatus">Đang chờ xác nhận sau 9:00 NY...</div>
+        <div id="keyLevelStatus">Đang chờ xác nhận sau 9:15 NY...</div>
         <div id="keyLevelBody" hidden>
-          <div>Regime GEX: <span id="keyLevelGamma">NA</span></div>
-          <div><span id="keyLevelIvLabel">IV EOD</span>: <span id="keyLevelIv">NA</span></div>
-          <div>Vanna EOD: <span id="keyLevelVanna">NA</span></div>
-          <div>DEX: <span id="keyLevelDex">NA</span></div>
-          <div>Key Level: <span id="keyLevelKey">NA</span></div>
-          <div>Trigger: <span id="keyLevelTrigger">NA</span></div>
-          <div>Đọc: <span id="keyLevelConfidence">NA</span></div>
-          <ul id="keyLevelNotes"></ul>
+          <div id="dvCard" class="dv-card" hidden>
+            <div class="dv-branches">
+              <div class="dv-branch" id="dvBranchA">
+                <div class="dv-bh"><span class="dv-bn">BRANCH A — EOD CLOSE</span><span class="dv-bp" id="dvBranchADir">—</span></div>
+                <div class="dv-bv" id="dvBranchAValue">—</div>
+                <div class="dv-bar"><i id="dvBranchABar"></i></div>
+              </div>
+              <div class="dv-branch" id="dvBranchB">
+                <div class="dv-bh"><span class="dv-bn">BRANCH B — SESSION AVG</span><span class="dv-bp" id="dvBranchBDir">—</span></div>
+                <div class="dv-bv" id="dvBranchBValue">—</div>
+                <div class="dv-bar"><i id="dvBranchBBar"></i></div>
+              </div>
+            </div>
+            <div id="dvAgree" class="dv-agree">
+              <b id="dvAgreeLabel">—</b>
+              <p id="dvAgreeDetail"></p>
+            </div>
+          </div>
+          <div class="fc-meta">Snapshot: <span id="keyLevelSnapshot">NA</span> · Spot đánh giá: <span id="keyLevelSpot">NA</span></div>
+
+          <div class="fc-label">FLOW CONTEXT — THE DEALER TABLE BEFORE THE BELL</div>
+          <div id="flowContextGrid" class="fc-grid"></div>
+
+          <div class="fc-label">GREEKS &amp; STRUCTURE</div>
+          <div id="greeksStructureGrid" class="fc-grid"></div>
+
+          <div class="fc-label">SCENARIO — CƠ HỌC TỪ LEVEL MAP + DEALER VERDICT (không phải khuyến nghị giao dịch)</div>
+          <div id="scenarioCard" class="sc-card" hidden>
+            <div class="sc-header">
+              <span class="sc-window" id="scWindow">—</span>
+              <span class="sc-title" id="scTitle">—</span>
+              <span class="sc-confidence" id="scConfidence">—</span>
+            </div>
+            <div class="sc-thesis" id="scThesis"></div>
+            <div class="sc-grid">
+              <div class="sc-col">
+                <div class="fc-h">ENTRY ZONE</div>
+                <div class="sc-entry" id="scEntry">—</div>
+                <div class="sc-tap" id="scTap"></div>
+                <div class="fc-h" style="margin-top:10px">STOP</div>
+                <div class="sc-stop" id="scStop">—</div>
+              </div>
+              <div class="sc-col">
+                <div class="fc-h">TARGETS</div>
+                <ul id="scTargets" class="sc-targets"></ul>
+              </div>
+            </div>
+            <div class="fc-h" style="margin-top:10px">CHECKLIST</div>
+            <ul id="scChecklist" class="sc-checklist"></ul>
+          </div>
+
+          <div class="fc-label">LEVEL MAP</div>
+          <ul id="levelMapList" class="level-map-list"></ul>
         </div>
         <pre class="export-line" id="keyLevelExport"></pre>
       </div>

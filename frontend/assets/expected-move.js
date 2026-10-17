@@ -21,7 +21,7 @@ function finitePointRows(points) {
 }
 
 function sessionDomain(session) {
-  const start = new Date(session?.market_open_utc || session?.collection_start_utc || "");
+  const start = new Date(session?.collection_start_utc || session?.market_open_utc || "");
   const end = new Date(session?.market_close_utc || "");
   const fallbackEnd = Number.isFinite(start.getTime()) ? new Date(start.getTime() + 6.5 * 60 * 60 * 1000) : null;
   return {

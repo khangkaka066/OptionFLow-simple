@@ -103,7 +103,10 @@ export function createSurfacePanel(cfg) {
     setLegend(payload);
     const shape = `${payload.expiries?.length || 0}x${payload.strikes?.length || 0}`;
     const ts = payload.snapshot_utc ? new Date(payload.snapshot_utc).toLocaleTimeString() : "--";
-    setStatus(`${payload.ticker} ${payload.greek.toUpperCase()} ${payload.mode} · ${shape} · ${ts}`);
+    const dateLabel = payload.source_date && payload.source_date !== payload.date
+      ? `${payload.date} · source ${payload.source_date}`
+      : (payload.date || "--");
+    setStatus(`${payload.ticker} ${payload.greek.toUpperCase()} ${payload.mode} · ${dateLabel} · ${shape} · ${ts}`);
   }
 
   async function fetchFallback(params, force = false) {
