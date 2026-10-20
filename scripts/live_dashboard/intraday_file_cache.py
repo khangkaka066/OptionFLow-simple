@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 class IntradayFileCache:

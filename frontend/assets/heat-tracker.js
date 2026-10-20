@@ -128,7 +128,20 @@ function buildHeatGrid(state) {
     points = points.filter(p => p.time && new Date(p.time).getTime() >= dataCutoffUtc.getTime());
     candles = candles.filter(c => c.t && new Date(c.t).getTime() >= dataCutoffUtc.getTime());
   }
-  ribbon = [...ribbon].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const tradingDate = session?.trading_date;
+  const closeMs = session?.market_close_utc ? new Date(session.market_close_utc).getTime() : Infinity;
+  const chainIsFresh = (captureTime, sourceTime) => {
+    if (!sourceTime) return true;
+    const ageMs = new Date(captureTime).getTime() - new Date(sourceTime).getTime();
+    return Number.isFinite(ageMs) && ageMs >= -2 * 60000 && ageMs <= 45 * 60000;
+  };
+  ribbon = ribbon.filter(s => s.expiry === tradingDate
+    && Number.isFinite(new Date(s.time).getTime())
+    && new Date(s.time).getTime() < closeMs
+    && chainIsFresh(s.time, s.source_timestamp));
+  // Duplicate records for one poll still represent one valuation.
+  ribbon = [...new Map(ribbon.map(s => [s.time, s])).values()]
+    .sort((a, b) => new Date(a.time) - new Date(b.time));
 
   let rawMaxAbs = 1;
   for (const snap of ribbon) {
@@ -203,7 +216,10 @@ function buildHeatGrid(state) {
       {strike: level.strike, exposure: -level.negMax, side: "put", score: level.negMax * 0.75 + (level.negCount ? level.negSum / level.negCount : 0) * 0.25},
     ])
     .filter(level => level.score > rawMaxAbs * 0.08);
-  const summaryLevels = metricKey === "net_gex"
+  const summaryIs0Dte = summary?.expiry === tradingDate
+    && summary?.effective_snapshot_date === tradingDate
+    && chainIsFresh(summary?.snapshot_utc, summary?.source_timestamp);
+  const summaryLevels = metricKey === "net_gex" && summaryIs0Dte
     ? (summary?.top_abs_gex_levels || []).map(l => ({
         strike: Number(l.strike),
         exposure: Number(l.net_gex),
@@ -237,7 +253,7 @@ function buildHeatGrid(state) {
       wallLines.push({strike: l.strike, color: COLORS.orange, lineColor: rgbaFromHex(COLORS.orange, 0.45), dash: i === 0 ? "solid" : "dash", label: putLabels[i] + " " + l.strike.toFixed(0), side: "left"});
     });
   }
-  const flip = summary?.[cfg.flipKey];
+  const flip = summaryIs0Dte ? summary?.[cfg.flipKey] : null;
   if (flip) {
     wallLines.push({strike: Number(flip), color: "#C084FC", lineColor: "rgba(192,132,252,0.4)", dash: "dot", label: cfg.flipLabel + " " + Number(flip).toFixed(2), side: "right"});
   }
@@ -295,7 +311,7 @@ function renderHeatCanvas() {
   if (!g || !g.strikes.length || !g.bucketCount) {
     ctx.fillStyle = COLORS.muted;
     ctx.font = "12px Menlo, Consolas, monospace";
-    ctx.fillText("Waiting for data...", 16, 24);
+    ctx.fillText("Waiting for 0DTE data...", 16, 24);
     return;
   }
 

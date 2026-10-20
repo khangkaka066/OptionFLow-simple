@@ -1,4 +1,6 @@
 yfinance
+# tvdatafeed isn't on a maintained PyPI release; install from source:
+#   python3 -m pip install --upgrade git+https://github.com/rongardF/tvdatafeed.git
 requests
 beautifulsoup4
 pandas

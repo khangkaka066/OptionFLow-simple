@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
@@ -32,7 +33,7 @@ import numpy as np
 import pandas as pd
 
 import storage
-from bsm import years_from_override, years_to_expiry
+from bsm import years_from_override, years_to_expiry, years_to_expiry_at
 from cleanup_dead_data import run_cleanup
 from retain_recent_data import run_retention
 from exposure import aggregate_by_strike, build_summary, compute_greeks, nearest_atm_iv
@@ -110,6 +111,13 @@ def parse_args() -> argparse.Namespace:
 
 def resolve_snapshot_day(value: str | None) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date() if value else datetime.now().date()
+
+
+def snapshot_time_to_expiry(expiry: str, effective_day: date, valuation_time: datetime) -> tuple[int, float]:
+    """Value live 0DTE at the polling time paired with the live index spot."""
+    if expiry == effective_day.isoformat() and valuation_time.astimezone(ZoneInfo("America/New_York")).date() == effective_day:
+        return years_to_expiry_at(expiry, valuation_time)
+    return years_to_expiry(expiry, effective_day)
 
 
 def select_spot(
@@ -346,23 +354,9 @@ def main() -> None:
         cboe_data.chain = cboe_data.chain[cboe_data.chain["expiry"] == expiry]
 
     if args.source != "insiderfinance":
-        effective_day = yahoo.effective_snapshot_day(snapshot_day, yahoo_data.calls, yahoo_data.puts)
-
-    if args.time_to_expiry_days is not None:
-        days, years = years_from_override(args.time_to_expiry_days)
-        years_by_expiry = {exp: years for exp in (included_expiries or [expiry])}
-    elif args.all_expiries:
-        years_by_expiry = {}
-        days_by_expiry = {}
-        for exp in included_expiries:
-            exp_days, exp_years = years_to_expiry(exp, effective_day)
-            years_by_expiry[exp] = exp_years
-            days_by_expiry[exp] = exp_days
-        nearest_expiry = min(included_expiries)
-        days, years = days_by_expiry[nearest_expiry], years_by_expiry[nearest_expiry]
-    else:
-        days, years = years_to_expiry(expiry, effective_day)
-        years_by_expiry = {expiry: years}
+        effective_day = yahoo.effective_snapshot_day(
+            snapshot_day, yahoo_data.calls, yahoo_data.puts, spot=yahoo_data.spot
+        )
 
     if args.source != "insiderfinance":
         volume_chain, volume_report = reconcile_chain(
@@ -425,6 +419,23 @@ def main() -> None:
         if_data.spot if if_data is not None else None,
     )
     report_dict["spot_source"] = spot_source
+
+    valuation_time = datetime.now(ZoneInfo("America/New_York"))
+    if args.time_to_expiry_days is not None:
+        days, years = years_from_override(args.time_to_expiry_days)
+        years_by_expiry = {exp: years for exp in (included_expiries or [expiry])}
+    elif args.all_expiries:
+        years_by_expiry = {}
+        days_by_expiry = {}
+        for exp in included_expiries:
+            exp_days, exp_years = snapshot_time_to_expiry(exp, effective_day, valuation_time)
+            years_by_expiry[exp] = exp_years
+            days_by_expiry[exp] = exp_days
+        nearest_expiry = min(included_expiries)
+        days, years = days_by_expiry[nearest_expiry], years_by_expiry[nearest_expiry]
+    else:
+        days, years = snapshot_time_to_expiry(expiry, effective_day, valuation_time)
+        years_by_expiry = {expiry: years}
 
     chain = compute_greeks(reconciled, spot_for_greeks, years_by_expiry, args.rate)
     report_dict["iv_unavailable_count"] = int(chain["impliedVolatility"].isna().sum())
@@ -559,9 +570,10 @@ def main() -> None:
     print(f"Market dataset: {market_paths.get('by_strike')}")
     if deleted_raw:
         print(f"Deleted raw JSON after history write: {', '.join(str(p) for p in deleted_raw)}")
-    run_cleanup(apply=True, verbose=False)
-    if args.output_root.resolve() == DEFAULT_OUTPUT_ROOT.resolve():
-        run_retention(apply=True, verbose=False)
+    if os.getenv("QUANT_PRESERVE_EXISTING_DATA") != "1":
+        run_cleanup(apply=True, verbose=False)
+        if args.output_root.resolve() == DEFAULT_OUTPUT_ROOT.resolve():
+            run_retention(apply=True, verbose=False)
 
 
 if __name__ == "__main__":

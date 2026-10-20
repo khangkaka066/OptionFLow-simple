@@ -12,6 +12,8 @@ from urllib.parse import parse_qs, urlparse
 _GZIP_MIN_BYTES = 512
 
 from .cache import ResponseCache
+from .atas_exposure import build_atas_exposure, fetch_qqq_close_1559
+from .atas_heatmap import build_atas_heatmap
 from .greek_surface_service import GreekSurfaceService
 from .intraday_service import IntradayService
 from .net_drift_service import NetDriftService
@@ -56,6 +58,69 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/state":
             self.send_json_payload(self.state.snapshot())
+            return
+        if parsed.path == "/api/atas/exposure":
+            query = parse_qs(parsed.query)
+            ticker = (query.get("ticker", [self.ticker])[0] or self.ticker).upper()
+            basis = query.get("basis", ["intraday"])[0]
+            try:
+                if ticker != self.ticker.upper():
+                    raise ValueError("ATAS endpoint serves the running server's primary ticker only")
+                payload = build_atas_exposure(self.state.snapshot(), ticker=ticker, basis=basis)
+                self.send_json_payload(payload)
+            except LookupError as exc:
+                self.send_json_payload({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            except ValueError as exc:
+                self.send_json_payload({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/atas/reference":
+            query = parse_qs(parsed.query)
+            day = query.get("date", [""])[0]
+            try:
+                from datetime import date
+                if date.fromisoformat(day).isoformat() != day:
+                    raise ValueError("date must use YYYY-MM-DD")
+                key = ("atas_qqq_1559", day)
+                payload = self.response_cache.get(key, 86400)
+                if payload is None:
+                    payload = self.json_bytes(fetch_qqq_close_1559(day))
+                    self.response_cache.set(key, payload)
+                self.send_bytes(payload, "application/json")
+            except ValueError as exc:
+                self.send_json_payload({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            except Exception:
+                self.send_json_payload({"error": "QQQ 15:59 close unavailable; retry or enter the locked ratio manually"}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        if parsed.path == "/api/atas/heatmap":
+            query = parse_qs(parsed.query)
+            day = query.get("date", ["latest"])[0]
+            try:
+                from datetime import date
+                if day == "latest":
+                    day = self.state.session["trading_date"]
+                if date.fromisoformat(day).isoformat() != day:
+                    raise ValueError("date must use YYYY-MM-DD")
+                requested_ticker = (query.get("ticker", ["NDX"])[0] or "NDX").upper()
+                if requested_ticker not in {"NDX", "QQQ"} or requested_ticker not in {
+                    self.ticker.upper(), (self.state.secondary_ticker or "").upper()
+                }:
+                    raise ValueError("Requested heatmap ticker is not enabled on this server")
+                strike_range = float(query.get("range", ["25" if requested_ticker == "QQQ" else "400"])[0])
+                if not (5 <= strike_range <= 200 if requested_ticker == "QQQ" else 50 <= strike_range <= 2000):
+                    raise ValueError("range must be 5-200 QQQ or 50-2000 NDX points")
+                key = ("atas_gex_heatmap", requested_ticker, day, strike_range)
+                body = self.response_cache.get(key, 15.0)
+                if body is None:
+                    if self.intraday_service is None:
+                        raise LookupError("Intraday service unavailable")
+                    state = self.intraday_service.load_heatmap_state(day, requested_ticker, strike_range)
+                    body = self.json_bytes(build_atas_heatmap(state, ticker=requested_ticker, strike_range=strike_range))
+                    self.response_cache.set(key, body)
+                self.send_bytes(body, "application/json")
+            except (ValueError, OverflowError) as exc:
+                self.send_json_payload({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            except Exception as exc:
+                self.send_json_payload({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
             return
         if parsed.path == "/api/xynth-flow":
             if self.xynth_flow_service is None:

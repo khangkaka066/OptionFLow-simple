@@ -10,7 +10,7 @@ from typing import Any
 
 from .intraday_file_cache import session_is_closed
 
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 
 
 class SnapshotFileCache:

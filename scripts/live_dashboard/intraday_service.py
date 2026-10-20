@@ -27,6 +27,25 @@ class IntradayService:
         self._find_expected_move_anchor = find_expected_move_anchor
         self._file_cache = file_cache
 
+    def load_heatmap_state(self, trading_date: str, ticker: str, window: float) -> dict:
+        """Load the collected time series without requiring a daily summary snapshot."""
+        session = self._session_for_trading_date(trading_date)
+        cached = None
+        if self._file_cache is not None and session_is_closed(session):
+            cached = self._file_cache.load(
+                ticker=ticker, trading_date=session["trading_date"], window=window
+            )
+        if cached is None:
+            points, ribbon = self._seed_session_data(ticker, session, window)
+            if self._file_cache is not None and session_is_closed(session):
+                self._file_cache.save(
+                    ticker=ticker, trading_date=session["trading_date"],
+                    window=window, points=points, ribbon=ribbon,
+                )
+        else:
+            points, ribbon = cached
+        return {"session": session, "points": points, "gex_ribbon": ribbon}
+
     def load_state(self, trading_date: str, ticker: str, window: float, *, refresh: bool = False) -> dict:
         """Full intraday replay for live-only panels on a selected NY trading date."""
         started = time.perf_counter()

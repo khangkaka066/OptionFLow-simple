@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AtasPath Condition="'$(AtasPath)' == ''">/Applications/ATAS X.app/Contents/MonoBundle</AtasPath>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="ATAS.Indicators"><HintPath>$(AtasPath)/ATAS.Indicators.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ATAS.DataFeedsCore"><HintPath>$(AtasPath)/ATAS.DataFeedsCore.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="OFT.Rendering"><HintPath>$(AtasPath)/OFT.Rendering.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Utils.Common"><HintPath>$(AtasPath)/Utils.Common.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Drawing.Common"><HintPath>$(AtasPath)/System.Drawing.Common.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

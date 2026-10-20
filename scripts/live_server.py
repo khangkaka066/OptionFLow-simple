@@ -80,7 +80,10 @@ GITHUB_SYNC_STATUS_PATH = PROJECT_ROOT / "data" / "github_sync_status.json"
 # timeout, a network hang inside it (e.g. Yahoo silently blackholing a
 # blocked cloud IP instead of erroring) blocks the collector loop forever —
 # next_fetch freezes and successes/failures never increment.
-SNAPSHOT_SUBPROCESS_TIMEOUT_SECONDS = 90
+# NDX alone routinely takes ~80s (its CBOE+InsiderFinance chain has ~3x as
+# many contracts to reconcile as QQQ's), so 90s left almost no margin for
+# normal network jitter and was killing a healthy fraction of NDX runs.
+SNAPSHOT_SUBPROCESS_TIMEOUT_SECONDS = 150
 
 
 def _tenor_to_payload(tenor: dict, spot: float, dte_reference_day: str) -> dict:
@@ -263,6 +266,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--skip-retention", action="store_true", help="Start without deleting old stored data.")
     parser.add_argument("--window", type=float, default=14)
     parser.add_argument("--rate", type=float, default=0.04)
     parser.add_argument("--top", type=int, default=10)
@@ -631,7 +635,7 @@ def seed_session_data(ticker: str, session: dict, window: float) -> tuple[list[d
                 chart_rows = by_strike.sort_values("abs_net_gex", ascending=False).head(40)
             call_volume, put_volume = volume_totals(chart_rows)
             chain = chain_payload(chart_rows.to_dict(orient="records"))
-            ribbon.append(gex_snapshot_from_chart_rows(time_key, chart_rows))
+            ribbon.append(gex_snapshot_from_chart_rows(time_key, chart_rows, summary))
         except Exception:
             pass
         points.append({
@@ -749,7 +753,7 @@ def seed_locked_snapshot(
     return summary, rows, load_history(ticker)
 
 
-def gex_snapshot_from_chart_rows(time_key: str, chart_rows: pd.DataFrame) -> dict:
+def gex_snapshot_from_chart_rows(time_key: str, chart_rows: pd.DataFrame, summary: dict | None = None) -> dict:
     keep_cols = [
         "strike",
         "net_gex",
@@ -759,7 +763,16 @@ def gex_snapshot_from_chart_rows(time_key: str, chart_rows: pd.DataFrame) -> dic
     ]
     rows = chart_rows.sort_values("strike")[[col for col in keep_cols if col in chart_rows.columns]].copy()
     records = rows.replace([np.inf, -np.inf], np.nan).where(pd.notna(rows), None).to_dict(orient="records")
-    return {"time": time_key, "rows": clean_records(records)}
+    summary = summary or {}
+    effective_day = str(summary.get("effective_snapshot_date") or "")
+    expiry = str(summary.get("expiry") or "")
+    return {
+        "time": time_key,
+        "expiry": expiry,
+        "effective_snapshot_date": effective_day,
+        "source_timestamp": summary.get("source_timestamp"),
+        "rows": clean_records(records),
+    }
 
 
 def session_from_summary(summary: dict) -> dict:
@@ -872,7 +885,7 @@ def rows_for_history_snapshot(
     chart_rows["call_iv_pct"] = chart_rows["call_iv"] * 100
     chart_rows["put_iv_pct"] = chart_rows["put_iv"] * 100
     records = chart_rows.replace([np.inf, -np.inf], np.nan).where(pd.notna(chart_rows), None).to_dict(orient="records")
-    return clean_records(records), gex_snapshot_from_chart_rows(snapshot_utc, chart_rows)
+    return clean_records(records), gex_snapshot_from_chart_rows(snapshot_utc, chart_rows, summary)
 
 
 def chart_payload_from_history(summary_history_path: Path, snapshot_utc: str, ticker: str, window: float) -> tuple[dict, dict, list[dict], list[dict], dict]:
@@ -969,7 +982,7 @@ def chart_payload_from_summary_path(
     records = rows.replace([np.inf, -np.inf], np.nan).where(pd.notna(rows), None).to_dict(orient="records")
     point["chain"] = chain_payload(records)
     point["expiry"] = clean_value(summary.get("expiry"))
-    gex_snapshot = gex_snapshot_from_chart_rows(time_key, chart_rows)
+    gex_snapshot = gex_snapshot_from_chart_rows(time_key, chart_rows, summary)
     return summary, point, clean_records(records), load_history(ticker), gex_snapshot
 
 
@@ -1007,7 +1020,7 @@ def day_series_from_summary_path(summary_path: Path, ticker: str, window: float)
                 chart_rows = by_strike.sort_values("abs_net_gex", ascending=False).head(40)
             call_volume, put_volume = volume_totals(chart_rows)
             chain = chain_payload(chart_rows.to_dict(orient="records"))
-            ribbon.append(gex_snapshot_from_chart_rows(time_key, chart_rows))
+            ribbon.append(gex_snapshot_from_chart_rows(time_key, chart_rows, summary))
         except Exception:
             pass
         points.append(
@@ -1207,7 +1220,7 @@ def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subp
                 "--all-expiries",
                 "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS),
             ]
-        return _run_snapshot_subprocess(cmd)
+        return _run_snapshot_subprocess(cmd, preserve_existing_data=getattr(args, "skip_retention", False))
 
     cmd = [
         sys.executable,
@@ -1236,10 +1249,10 @@ def run_snapshot(args: argparse.Namespace, *, fetch_tenor: bool = False) -> subp
             "--all-expiries",
             "--expiry-horizon-days", str(TENOR_REFRESH_HORIZON_DAYS),
         ]
-    return _run_snapshot_subprocess(cmd)
+    return _run_snapshot_subprocess(cmd, preserve_existing_data=getattr(args, "skip_retention", False))
 
 
-def _run_snapshot_subprocess(cmd: list[str]) -> subprocess.CompletedProcess:
+def _run_snapshot_subprocess(cmd: list[str], *, preserve_existing_data: bool = False) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
             cmd,
@@ -1248,6 +1261,7 @@ def _run_snapshot_subprocess(cmd: list[str]) -> subprocess.CompletedProcess:
             text=True,
             capture_output=True,
             timeout=SNAPSHOT_SUBPROCESS_TIMEOUT_SECONDS,
+            env={**os.environ, "QUANT_PRESERVE_EXISTING_DATA": "1"} if preserve_existing_data else None,
         )
     except subprocess.TimeoutExpired as exc:
         # TimeoutExpired.stdout/stderr are raw bytes even with text=True, since the
@@ -1567,7 +1581,8 @@ def levels_collector(
 def main() -> None:
     args = parse_args()
     pull_github_updates_on_startup(not args.no_github_pull)
-    run_retention(apply=True, verbose=False)
+    if not args.skip_retention:
+        run_retention(apply=True, verbose=False)
     set_collect_start_offset_min(args.collect_start_offset_min)
     state = LiveState(market_session_utc())
     state.session["collection_start_utc"] = collection_start_utc(state.session["market_open_utc"])

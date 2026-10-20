@@ -194,12 +194,26 @@ def fetch_multi_chain(ticker: str, horizon_days: int = 45) -> YahooChain:
     )
 
 
-def infer_latest_trade_date(calls: pd.DataFrame, puts: pd.DataFrame) -> date | None:
+def infer_latest_trade_date(
+    calls: pd.DataFrame, puts: pd.DataFrame, *, spot: float | None = None, near_atm_count: int = 10
+) -> date | None:
+    """Latest `lastTradeDate` across the chain.
+
+    Restricted to the `near_atm_count` strikes closest to `spot` when a spot
+    is given: far OTM strikes can go a session or more without a single
+    trade, so including them delays this past the open even once the
+    liquid, near-the-money strikes have already printed today's trades.
+    """
     dates = []
     for data in [calls, puts]:
         if "lastTradeDate" not in data:
             continue
-        parsed = pd.to_datetime(data["lastTradeDate"], errors="coerce", utc=True)
+        subset = data
+        if spot is not None and "strike" in data and not data.empty:
+            near_atm = data.assign(_dist=(data["strike"] - spot).abs()).nsmallest(near_atm_count, "_dist")
+            if not near_atm.empty:
+                subset = near_atm
+        parsed = pd.to_datetime(subset["lastTradeDate"], errors="coerce", utc=True)
         if parsed.notna().any():
             dates.append(parsed.max().date())
     if not dates:
@@ -226,8 +240,10 @@ def effective_snapshot_day(
     requested_snapshot_day: date,
     calls: pd.DataFrame,
     puts: pd.DataFrame,
+    *,
+    spot: float | None = None,
 ) -> date:
-    latest_trade_day = infer_latest_trade_date(calls, puts)
+    latest_trade_day = infer_latest_trade_date(calls, puts, spot=spot)
     if latest_trade_day is not None and latest_trade_day < requested_snapshot_day:
         print(
             "NOTICE: Yahoo option chain appears stale relative to requested snapshot date. "

@@ -1,21 +1,56 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable
 
 import pandas as pd
 import requests
 
-from sources import yahoo
+from sources import tradingview, yahoo
 
 ALPACA_DATA_URL = "https://data.alpaca.markets/v2/stocks/{symbol}/bars"
+
+# Yahoo's 1-minute intraday history for index tickers (e.g. ^NDX) is
+# intermittently empty outside/at the edges of market hours, which
+# yfinance mislabels as "possibly delisted" even though the symbol is
+# fine. Retrying every poll cycle just spams that log, so back off per
+# ticker after a few consecutive empty results.
+_DAY_HL_FAILURE_THRESHOLD = 3
+_DAY_HL_COOLDOWN_SECONDS = 300
+_day_hl_failures: dict[str, int] = {}
+_day_hl_cooldown_until: dict[str, float] = {}
 
 
 def alpaca_credentials() -> tuple[str | None, str | None]:
     return os.environ.get("ALPACA_API_KEY"), os.environ.get("ALPACA_SECRET_KEY")
 
 
+def fetch_tradingview_bars(ticker: str, start_iso: str, end_iso: str | None = None) -> list[dict]:
+    bars = tradingview.fetch_bars(ticker)
+    if not bars:
+        return bars
+    start = pd.to_datetime(start_iso, utc=True)
+    end = pd.to_datetime(end_iso, utc=True) if end_iso else None
+    return [
+        bar
+        for bar in bars
+        if pd.to_datetime(bar["t"], utc=True) >= start
+        and (end is None or pd.to_datetime(bar["t"], utc=True) <= end)
+    ]
+
+
 def candles_for_session(ticker: str, session: dict) -> tuple[list[dict], str | None]:
+    try:
+        bars = fetch_tradingview_bars(
+            ticker,
+            session["market_open_utc"],
+            end_iso=session.get("market_close_utc"),
+        )
+        if bars:
+            return bars, None
+    except Exception:
+        pass
     api_key, secret_key = alpaca_credentials()
     if not api_key or not secret_key:
         return [], "Alpaca API key not configured"
@@ -67,12 +102,26 @@ def fetch_alpaca_bars(ticker: str, start_iso: str, timeframe: str = "1Min", end_
 
 
 def fetch_day_high_low(ticker: str) -> tuple[float | None, float | None]:
+    now = time.monotonic()
+    if now < _day_hl_cooldown_until.get(ticker, 0.0):
+        return None, None
+
     try:
         yf = yahoo.import_yfinance()
         ticker_obj = yf.Ticker(yahoo._yahoo_symbol(ticker))
-        return yahoo.get_day_high_low(ticker_obj)
+        low, high = yahoo.get_day_high_low(ticker_obj)
     except Exception:
-        return None, None
+        low, high = None, None
+
+    if low is None or high is None:
+        failures = _day_hl_failures.get(ticker, 0) + 1
+        _day_hl_failures[ticker] = failures
+        if failures >= _DAY_HL_FAILURE_THRESHOLD:
+            _day_hl_cooldown_until[ticker] = now + _DAY_HL_COOLDOWN_SECONDS
+    else:
+        _day_hl_failures[ticker] = 0
+        _day_hl_cooldown_until[ticker] = 0.0
+    return low, high
 
 
 def fetch_futures_spot_at(futures_ticker: str, snapshot_utc: str | None) -> float | None:
@@ -140,21 +189,10 @@ def alpaca_candles_collector(
         with state.lock:
             if not state.running:
                 break
-        api_key, secret_key = alpaca_credentials()
-        if not api_key or not secret_key:
-            with state.lock:
-                state.candles_error = "Alpaca API key not configured"
-            sleep_fn(poll_seconds)
-            continue
-        try:
-            start_iso = market_session_utc()["market_open_utc"]
-            bars = fetch_alpaca_bars(ticker, start_iso)
-            with state.lock:
-                state.candles = bars
-                state.candles_error = None
-        except Exception as exc:
-            with state.lock:
-                state.candles_error = str(exc)
+        bars, error = candles_for_session(ticker, market_session_utc())
+        with state.lock:
+            state.candles = bars
+            state.candles_error = error
         sleep_fn(poll_seconds)
 
 
