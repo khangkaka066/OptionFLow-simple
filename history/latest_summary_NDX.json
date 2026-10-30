@@ -1,200 +1,200 @@
 {
   "ticker": "NDX",
-  "snapshot_utc": "2026-10-30T00:02:38+00:00",
-  "requested_snapshot_date": "2026-10-30",
-  "effective_snapshot_date": "2026-10-29",
-  "expiry": "2026-10-29",
-  "spot": 29402.5078,
+  "snapshot_utc": "2026-10-30T23:58:16+00:00",
+  "requested_snapshot_date": "2026-10-31",
+  "effective_snapshot_date": "2026-10-30",
+  "expiry": "2026-10-30",
+  "spot": 28384.8457,
   "days_to_expiry": 0,
   "years_to_expiry": 5.7077625570776254e-05,
   "rate": 0.04,
-  "net_gex": -1853513029.875636,
-  "total_call_gex": 1259330078.3898242,
-  "total_put_gex": -3112843108.2654595,
-  "gamma_wall_abs": 29375.0,
-  "gamma_wall_positive": 29660.0,
-  "call_resistance": 29660.0,
-  "put_support": 29375.0,
+  "net_gex": -2926543606.306276,
+  "total_call_gex": 459049400.21019113,
+  "total_put_gex": -3385593006.516467,
+  "gamma_wall_abs": 28400.0,
+  "gamma_wall_positive": 29600.0,
+  "call_resistance": 29600.0,
+  "put_support": 28000.0,
   "gamma_flip": null,
-  "gamma_local_flip": 29406.857190331288,
-  "net_dex": -790289145.2300242,
-  "total_call_dex": 1491200673.5275755,
-  "total_put_dex": -2281489818.7576,
-  "dex_wall_abs": 29990.0,
-  "dex_wall_positive": 29990.0,
-  "delta_flip": null,
-  "net_vex": 16626530.71690799,
-  "total_call_vex": 6108055.2902197745,
-  "total_put_vex": 10518475.426688215,
-  "vanna_wall_abs": 29375.0,
-  "vanna_wall_positive": 29375.0,
+  "gamma_local_flip": 28729.244437447593,
+  "net_dex": -7014462334.921463,
+  "total_call_dex": 990658429.9421366,
+  "total_put_dex": -8005120764.863601,
+  "dex_wall_abs": 28500.0,
+  "dex_wall_positive": 26000.0,
+  "delta_flip": 26781.351959752825,
+  "net_vex": 10534919.230437405,
+  "total_call_vex": 4722169.6593790855,
+  "total_put_vex": 5812749.57105832,
+  "vanna_wall_abs": 28000.0,
+  "vanna_wall_positive": 28000.0,
   "vanna_flip": null,
-  "vanna_local_flip": 29395.057472667704,
-  "net_chex": -67752641989.5014,
-  "total_call_chex": -42824048455.14741,
-  "total_put_chex": -24928593534.354,
-  "charm_wall_abs": 29990.0,
-  "charm_wall_positive": 29500.0,
+  "vanna_local_flip": 28384.989747630774,
+  "net_chex": -62753349330.04176,
+  "total_call_chex": -51139300441.18993,
+  "total_put_chex": -11614048888.851831,
+  "charm_wall_abs": 28000.0,
+  "charm_wall_positive": 28500.0,
   "charm_flip": null,
-  "charm_local_flip": 29399.002345394805,
+  "charm_local_flip": 28383.94073638477,
   "top_abs_gex_levels": [
     {
-      "strike": 29375,
-      "net_gex": -1001526415.4549918,
+      "strike": 28400,
+      "net_gex": -302908063.1272927,
       "call_gex": 0.0,
-      "put_gex": -1001526415.4549918,
-      "abs_net_gex": 1001526415.4549918
+      "put_gex": -302908063.1272927,
+      "abs_net_gex": 302908063.1272927
     },
     {
-      "strike": 29275,
-      "net_gex": -217402612.01960477,
-      "call_gex": 3737486.764841612,
-      "put_gex": -221140098.7844464,
-      "abs_net_gex": 217402612.01960477
-    },
-    {
-      "strike": 29390,
-      "net_gex": -99626517.40377222,
+      "strike": 28500,
+      "net_gex": -231373825.32220888,
       "call_gex": 0.0,
-      "put_gex": -99626517.40377222,
-      "abs_net_gex": 99626517.40377222
+      "put_gex": -231373825.32220888,
+      "abs_net_gex": 231373825.32220888
     },
     {
-      "strike": 29300,
-      "net_gex": -80169582.2263579,
-      "call_gex": 7533988.742589363,
-      "put_gex": -87703570.96894728,
-      "abs_net_gex": 80169582.2263579
+      "strike": 28000,
+      "net_gex": -224904817.51083225,
+      "call_gex": 918602.6872504103,
+      "put_gex": -225823420.19808266,
+      "abs_net_gex": 224904817.51083225
     },
     {
-      "strike": 29660,
-      "net_gex": 70788179.2339333,
-      "call_gex": 80303932.20908834,
-      "put_gex": -9515752.975155035,
-      "abs_net_gex": 70788179.2339333
-    },
-    {
-      "strike": 29320,
-      "net_gex": -70148538.2248371,
-      "call_gex": 3585235.4123166283,
-      "put_gex": -73733773.63715373,
-      "abs_net_gex": 70148538.2248371
-    },
-    {
-      "strike": 29350,
-      "net_gex": -67785266.99665214,
+      "strike": 28360,
+      "net_gex": -214943165.91137052,
       "call_gex": 0.0,
-      "put_gex": -67785266.99665214,
-      "abs_net_gex": 67785266.99665214
+      "put_gex": -214943165.91137052,
+      "abs_net_gex": 214943165.91137052
     },
     {
-      "strike": 29990,
-      "net_gex": 67153615.12320739,
-      "call_gex": 67153615.12320739,
-      "put_gex": 0.0,
-      "abs_net_gex": 67153615.12320739
+      "strike": 28300,
+      "net_gex": -145565248.15425786,
+      "call_gex": 0.0,
+      "put_gex": -145565248.15425786,
+      "abs_net_gex": 145565248.15425786
     },
     {
-      "strike": 29325,
-      "net_gex": -60591741.11458353,
-      "call_gex": 5644226.1639735615,
-      "put_gex": -66235967.27855709,
-      "abs_net_gex": 60591741.11458353
+      "strike": 28200,
+      "net_gex": -143038176.95692784,
+      "call_gex": 917732.4391053285,
+      "put_gex": -143955909.39603317,
+      "abs_net_gex": 143038176.95692784
     },
     {
-      "strike": 29370,
-      "net_gex": -60098769.21087041,
-      "call_gex": 3412092.2141397153,
-      "put_gex": -63510861.42501012,
-      "abs_net_gex": 60098769.21087041
+      "strike": 28100,
+      "net_gex": -139876752.86773112,
+      "call_gex": 0.0,
+      "put_gex": -139876752.86773112,
+      "abs_net_gex": 139876752.86773112
+    },
+    {
+      "strike": 28600,
+      "net_gex": -118147772.08628096,
+      "call_gex": 0.0,
+      "put_gex": -118147772.08628096,
+      "abs_net_gex": 118147772.08628096
+    },
+    {
+      "strike": 28350,
+      "net_gex": -113273542.13483387,
+      "call_gex": 0.0,
+      "put_gex": -113273542.13483387,
+      "abs_net_gex": 113273542.13483387
+    },
+    {
+      "strike": 28330,
+      "net_gex": -105998155.26987822,
+      "call_gex": 0.0,
+      "put_gex": -105998155.26987822,
+      "abs_net_gex": 105998155.26987822
     }
   ],
   "top_abs_dex_levels": [
     {
-      "strike": 29990,
-      "net_dex": 215505500.1297004,
-      "call_dex": 215505500.1297004,
-      "put_dex": 0.0,
-      "abs_net_dex": 215505500.1297004
-    },
-    {
-      "strike": 30100,
-      "net_dex": 129825832.1366904,
-      "call_dex": 132294901.27769583,
-      "put_dex": -2469069.141005439,
-      "abs_net_dex": 129825832.1366904
-    },
-    {
-      "strike": 29375,
-      "net_dex": -95179527.703502,
+      "strike": 28500,
+      "net_dex": -333350271.5060758,
       "call_dex": 0.0,
-      "put_dex": -95179527.703502,
-      "abs_net_dex": 95179527.703502
+      "put_dex": -333350271.5060758,
+      "abs_net_dex": 333350271.5060758
+    },
+    {
+      "strike": 28600,
+      "net_dex": -306379021.568786,
+      "call_dex": 0.0,
+      "put_dex": -306379021.568786,
+      "abs_net_dex": 306379021.568786
+    },
+    {
+      "strike": 29000,
+      "net_dex": -283238570.8609411,
+      "call_dex": 17608150.75469047,
+      "put_dex": -300846721.6156316,
+      "abs_net_dex": 283238570.8609411
+    },
+    {
+      "strike": 29300,
+      "net_dex": -261569690.30331582,
+      "call_dex": 14892816.546496995,
+      "put_dex": -276462506.8498128,
+      "abs_net_dex": 261569690.30331582
     },
     {
       "strike": 29500,
-      "net_dex": -69995473.89212331,
-      "call_dex": 4603206.432952412,
-      "put_dex": -74598680.32507573,
-      "abs_net_dex": 69995473.89212331
+      "net_dex": -197168601.86826855,
+      "call_dex": 20530439.92771687,
+      "put_dex": -217699041.79598543,
+      "abs_net_dex": 197168601.86826855
     },
     {
-      "strike": 30225,
-      "net_dex": 68173282.94975278,
-      "call_dex": 68173282.94975278,
-      "put_dex": 0.0,
-      "abs_net_dex": 68173282.94975278
+      "strike": 30000,
+      "net_dex": -162494014.21895704,
+      "call_dex": 20578508.56759615,
+      "put_dex": -183072522.78655317,
+      "abs_net_dex": 162494014.21895704
     },
     {
-      "strike": 29575,
-      "net_dex": -67565737.95503417,
-      "call_dex": 0.0,
-      "put_dex": -67565737.95503417,
-      "abs_net_dex": 67565737.95503417
+      "strike": 31500,
+      "net_dex": -152261448.1906732,
+      "call_dex": 958458.9619533654,
+      "put_dex": -153219907.15262657,
+      "abs_net_dex": 152261448.1906732
     },
     {
-      "strike": 29275,
-      "net_dex": -63253620.37268191,
-      "call_dex": 6215343.272898758,
-      "put_dex": -69468963.64558066,
-      "abs_net_dex": 63253620.37268191
+      "strike": 28000,
+      "net_dex": -136776519.10539618,
+      "call_dex": 11085406.602347063,
+      "put_dex": -147861925.70774326,
+      "abs_net_dex": 136776519.10539618
     },
     {
-      "strike": 29600,
-      "net_dex": -55510228.771108694,
-      "call_dex": 3947151.589874826,
-      "put_dex": -59457380.36098352,
-      "abs_net_dex": 55510228.771108694
+      "strike": 29400,
+      "net_dex": -107261884.209029,
+      "call_dex": 13579266.11909932,
+      "put_dex": -120841150.32812832,
+      "abs_net_dex": 107261884.209029
     },
     {
-      "strike": 29720,
-      "net_dex": 50519843.77070884,
-      "call_dex": 58428888.080212384,
-      "put_dex": -7909044.30950355,
-      "abs_net_dex": 50519843.77070884
-    },
-    {
-      "strike": 29640,
-      "net_dex": -43415291.214212075,
-      "call_dex": 2033336.4222949976,
-      "put_dex": -45448627.63650707,
-      "abs_net_dex": 43415291.214212075
+      "strike": 28800,
+      "net_dex": -104048034.4762916,
+      "call_dex": 904545.5223115518,
+      "put_dex": -104952579.99860315,
+      "abs_net_dex": 104048034.4762916
     }
   ],
-  "avg_iv": 2.7380467621895903,
+  "avg_iv": 3.701439377384884,
   "included_expiries": [
-    "2026-10-29"
+    "2026-10-30"
   ],
   "chain_source": "insiderfinance",
   "spot_source": "cboe",
-  "source_timestamp": "2026-10-29T20:00:00+00:00",
+  "source_timestamp": "2026-10-30T20:04:47.135532363+00:00",
   "source_is_stale": false,
   "fetch_source": "api",
   "iv_cboe_count": 0,
   "quote_cboe_count": 0,
   "iv_unavailable_count": 0,
   "volume_source": "cboe",
-  "volume_cboe_count": 922,
+  "volume_cboe_count": 948,
   "volume_unavailable_count": 0,
-  "volume_timestamp": "2026-10-30 00:01:33"
+  "volume_timestamp": "2026-10-30 23:57:39"
 }
