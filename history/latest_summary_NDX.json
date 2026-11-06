@@ -1,200 +1,200 @@
 {
   "ticker": "NDX",
-  "snapshot_utc": "2026-11-05T00:58:42+00:00",
-  "requested_snapshot_date": "2026-11-05",
-  "effective_snapshot_date": "2026-11-04",
-  "expiry": "2026-11-04",
-  "spot": 28437.166,
+  "snapshot_utc": "2026-11-06T01:01:16+00:00",
+  "requested_snapshot_date": "2026-11-06",
+  "effective_snapshot_date": "2026-11-05",
+  "expiry": "2026-11-05",
+  "spot": 26629.8086,
   "days_to_expiry": 0,
   "years_to_expiry": 5.7077625570776254e-05,
   "rate": 0.04,
-  "net_gex": 1245724778.346441,
-  "total_call_gex": 2299195724.149061,
-  "total_put_gex": -1053470945.80262,
-  "gamma_wall_abs": 28525.0,
-  "gamma_wall_positive": 28525.0,
-  "call_resistance": 28525.0,
-  "put_support": 28400.0,
-  "gamma_flip": 28512.588853915135,
-  "gamma_local_flip": 28402.605010435236,
-  "net_dex": 492768030.8191341,
-  "total_call_dex": 2257959891.317006,
-  "total_put_dex": -1765191860.4978719,
-  "dex_wall_abs": 28525.0,
-  "dex_wall_positive": 28525.0,
-  "delta_flip": 28376.48915970764,
-  "net_vex": 12965495.735769497,
-  "total_call_vex": 8505388.779240966,
-  "total_put_vex": 4460106.956528531,
-  "vanna_wall_abs": 28525.0,
-  "vanna_wall_positive": 28525.0,
+  "net_gex": -692095732.9716396,
+  "total_call_gex": 60016906.12751184,
+  "total_put_gex": -752112639.0991513,
+  "gamma_wall_abs": 26500.0,
+  "gamma_wall_positive": 28810.0,
+  "call_resistance": 28810.0,
+  "put_support": 26500.0,
+  "gamma_flip": null,
+  "gamma_local_flip": 27965.828232225816,
+  "net_dex": -6788845029.74949,
+  "total_call_dex": 93086196.37924522,
+  "total_put_dex": -6881931226.128735,
+  "dex_wall_abs": 27800.0,
+  "dex_wall_positive": 28810.0,
+  "delta_flip": null,
+  "net_vex": 882490.3257879124,
+  "total_call_vex": 909883.282389631,
+  "total_put_vex": -27392.956601718208,
+  "vanna_wall_abs": 26500.0,
+  "vanna_wall_positive": 26500.0,
   "vanna_flip": null,
-  "vanna_local_flip": 28432.06041616655,
-  "net_chex": -74111168444.65567,
-  "total_call_chex": -46961699100.540886,
-  "total_put_chex": -27149469344.114788,
-  "charm_wall_abs": 29600.0,
-  "charm_wall_positive": 27990.0,
-  "charm_flip": null,
-  "charm_local_flip": 28435.410255065704,
+  "vanna_local_flip": 26675.58166882217,
+  "net_chex": -3059226075.2520823,
+  "total_call_chex": -10411946626.448988,
+  "total_put_chex": 7352720551.196905,
+  "charm_wall_abs": 25300.0,
+  "charm_wall_positive": 26800.0,
+  "charm_flip": 27341.683549828005,
+  "charm_local_flip": 26643.261094624224,
   "top_abs_gex_levels": [
     {
-      "strike": 28525,
-      "net_gex": 478200785.2887232,
-      "call_gex": 479991473.6123162,
-      "put_gex": -1790688.3235930053,
-      "abs_net_gex": 478200785.2887232
+      "strike": 26500,
+      "net_gex": -162302751.03325686,
+      "call_gex": 0.0,
+      "put_gex": -162302751.03325686,
+      "abs_net_gex": 162302751.03325686
     },
     {
-      "strike": 28440,
-      "net_gex": 108005903.15757431,
-      "call_gex": 113213430.7071856,
-      "put_gex": -5207527.549611291,
-      "abs_net_gex": 108005903.15757431
+      "strike": 26800,
+      "net_gex": -117211571.17773294,
+      "call_gex": 0.0,
+      "put_gex": -117211571.17773294,
+      "abs_net_gex": 117211571.17773294
     },
     {
-      "strike": 28520,
-      "net_gex": 100900199.00660226,
-      "call_gex": 108421091.94619757,
-      "put_gex": -7520892.939595316,
-      "abs_net_gex": 100900199.00660226
+      "strike": 26600,
+      "net_gex": -62394042.20779188,
+      "call_gex": 0.0,
+      "put_gex": -62394042.20779188,
+      "abs_net_gex": 62394042.20779188
     },
     {
-      "strike": 28450,
-      "net_gex": 74189985.10432655,
-      "call_gex": 121018629.52424607,
-      "put_gex": -46828644.41991952,
-      "abs_net_gex": 74189985.10432655
+      "strike": 26700,
+      "net_gex": -34206233.04376046,
+      "call_gex": 0.0,
+      "put_gex": -34206233.04376046,
+      "abs_net_gex": 34206233.04376046
     },
     {
-      "strike": 28420,
-      "net_gex": 68727262.83586098,
-      "call_gex": 68727262.83586098,
-      "put_gex": 0.0,
-      "abs_net_gex": 68727262.83586098
+      "strike": 27300,
+      "net_gex": -29298721.280886218,
+      "call_gex": 0.0,
+      "put_gex": -29298721.280886218,
+      "abs_net_gex": 29298721.280886218
     },
     {
-      "strike": 28840,
-      "net_gex": 66822974.182083726,
-      "call_gex": 66822974.182083726,
-      "put_gex": 0.0,
-      "abs_net_gex": 66822974.182083726
+      "strike": 26000,
+      "net_gex": -27854686.259640142,
+      "call_gex": 0.0,
+      "put_gex": -27854686.259640142,
+      "abs_net_gex": 27854686.259640142
     },
     {
-      "strike": 29000,
-      "net_gex": 63586788.138442956,
-      "call_gex": 64834926.94130271,
-      "put_gex": -1248138.8028597552,
-      "abs_net_gex": 63586788.138442956
+      "strike": 26300,
+      "net_gex": -25685092.147931833,
+      "call_gex": 0.0,
+      "put_gex": -25685092.147931833,
+      "abs_net_gex": 25685092.147931833
     },
     {
-      "strike": 29600,
-      "net_gex": 63089378.125146165,
-      "call_gex": 63660877.07032652,
-      "put_gex": -571498.9451803569,
-      "abs_net_gex": 63089378.125146165
+      "strike": 26400,
+      "net_gex": -18072614.092438765,
+      "call_gex": 0.0,
+      "put_gex": -18072614.092438765,
+      "abs_net_gex": 18072614.092438765
     },
     {
-      "strike": 28430,
-      "net_gex": 52445243.595474355,
-      "call_gex": 74554853.45702513,
-      "put_gex": -22109609.86155077,
-      "abs_net_gex": 52445243.595474355
+      "strike": 27200,
+      "net_gex": -16917927.19310219,
+      "call_gex": 0.0,
+      "put_gex": -16917927.19310219,
+      "abs_net_gex": 16917927.19310219
     },
     {
-      "strike": 28650,
-      "net_gex": 37457523.06794143,
-      "call_gex": 46094424.506949626,
-      "put_gex": -8636901.439008199,
-      "abs_net_gex": 37457523.06794143
+      "strike": 27000,
+      "net_gex": -16206931.374787576,
+      "call_gex": 910909.8480386665,
+      "put_gex": -17117841.222826242,
+      "abs_net_gex": 16206931.374787576
     }
   ],
   "top_abs_dex_levels": [
     {
-      "strike": 28525,
-      "net_dex": 130597627.74189375,
-      "call_dex": 132632080.82208109,
-      "put_dex": -2034453.0801873389,
-      "abs_net_dex": 130597627.74189375
+      "strike": 27800,
+      "net_dex": -288413260.3267911,
+      "call_dex": 0.0,
+      "put_dex": -288413260.3267911,
+      "abs_net_dex": 288413260.3267911
     },
     {
-      "strike": 27990,
-      "net_dex": 124933280.53845423,
-      "call_dex": 136186559.26406524,
-      "put_dex": -11253278.725610996,
-      "abs_net_dex": 124933280.53845423
+      "strike": 26800,
+      "net_dex": -261407189.19325948,
+      "call_dex": 0.0,
+      "put_dex": -261407189.19325948,
+      "abs_net_dex": 261407189.19325948
     },
     {
-      "strike": 29600,
-      "net_dex": 81533368.21613595,
-      "call_dex": 106693842.63410278,
-      "put_dex": -25160474.417966824,
-      "abs_net_dex": 81533368.21613595
+      "strike": 27300,
+      "net_dex": -243360315.4042572,
+      "call_dex": 0.0,
+      "put_dex": -243360315.4042572,
+      "abs_net_dex": 243360315.4042572
     },
     {
-      "strike": 28840,
-      "net_dex": 67079286.66896569,
-      "call_dex": 67079286.66896569,
-      "put_dex": 0.0,
-      "abs_net_dex": 67079286.66896569
+      "strike": 27500,
+      "net_dex": -199424819.24145964,
+      "call_dex": 0.0,
+      "put_dex": -199424819.24145964,
+      "abs_net_dex": 199424819.24145964
     },
     {
-      "strike": 29750,
-      "net_dex": 60047588.988281265,
-      "call_dex": 68512680.05903804,
-      "put_dex": -8465091.070756778,
-      "abs_net_dex": 60047588.988281265
+      "strike": 28570,
+      "net_dex": -150840012.75551352,
+      "call_dex": 946451.5241348186,
+      "put_dex": -151786464.27964833,
+      "abs_net_dex": 150840012.75551352
     },
     {
-      "strike": 28200,
-      "net_dex": 51581685.20613393,
-      "call_dex": 62452479.9563789,
-      "put_dex": -10870794.75024497,
-      "abs_net_dex": 51581685.20613393
+      "strike": 27780,
+      "net_dex": -150701540.3508659,
+      "call_dex": 0.0,
+      "put_dex": -150701540.3508659,
+      "abs_net_dex": 150701540.3508659
     },
     {
-      "strike": 28860,
-      "net_dex": -47373129.311830774,
-      "call_dex": 4520288.268594669,
-      "put_dex": -51893417.58042544,
-      "abs_net_dex": 47373129.311830774
+      "strike": 28560,
+      "net_dex": -142829704.89785936,
+      "call_dex": 967700.4438122864,
+      "put_dex": -143797405.34167165,
+      "abs_net_dex": 142829704.89785936
     },
     {
-      "strike": 28800,
-      "net_dex": -45157987.15384425,
-      "call_dex": 14086949.25946909,
-      "put_dex": -59244936.413313344,
-      "abs_net_dex": 45157987.15384425
+      "strike": 27700,
+      "net_dex": -136913904.11948586,
+      "call_dex": 0.0,
+      "put_dex": -136913904.11948586,
+      "abs_net_dex": 136913904.11948586
     },
     {
-      "strike": 28675,
-      "net_dex": 44224236.72880426,
-      "call_dex": 44224236.72880426,
-      "put_dex": 0.0,
-      "abs_net_dex": 44224236.72880426
+      "strike": 27400,
+      "net_dex": -134590145.668392,
+      "call_dex": 0.0,
+      "put_dex": -134590145.668392,
+      "abs_net_dex": 134590145.668392
     },
     {
-      "strike": 29300,
-      "net_dex": 43171981.827864505,
-      "call_dex": 53271959.509979114,
-      "put_dex": -10099977.682114609,
-      "abs_net_dex": 43171981.827864505
+      "strike": 28530,
+      "net_dex": -132110876.67820019,
+      "call_dex": 1033891.3296447815,
+      "put_dex": -133144768.00784497,
+      "abs_net_dex": 132110876.67820019
     }
   ],
-  "avg_iv": 3.228522715900462,
+  "avg_iv": 3.4790450981323917,
   "included_expiries": [
-    "2026-11-04"
+    "2026-11-05"
   ],
   "chain_source": "insiderfinance",
   "spot_source": "cboe",
-  "source_timestamp": "2026-11-04T21:04:48.098001819+00:00",
+  "source_timestamp": "2026-11-05T21:04:55.626054442+00:00",
   "source_is_stale": false,
   "fetch_source": "api",
   "iv_cboe_count": 0,
   "quote_cboe_count": 0,
   "iv_unavailable_count": 0,
   "volume_source": "cboe",
-  "volume_cboe_count": 1062,
+  "volume_cboe_count": 974,
   "volume_unavailable_count": 0,
-  "volume_timestamp": "2026-11-05 00:58:30"
+  "volume_timestamp": "2026-11-06 01:00:33"
 }
